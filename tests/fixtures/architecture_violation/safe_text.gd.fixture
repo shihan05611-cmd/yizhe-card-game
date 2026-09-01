@@ -1,0 +1,21 @@
+extends RefCounted
+
+# extends Node2D; get_tree(); randi(); FileAccess; preload("res://systems/comment.gd")
+const EXAMPLE := "RandomNumberGenerator randf_range() DirAccess load('res://scenes/string.tscn')"
+const MULTILINE := """
+extends Control
+get_tree()
+preload(
+    "res://autoload/example.gd"
+)
+"""
+
+# load(
+#     "res://scenes/comment_multiline.tscn"
+# )
+
+
+func brainf() -> void:
+	var RandomNumberGeneratorFactory := "safe"
+	var preload_hint := "res://scenes/not_a_dependency.tscn"
+	var get_treehouse := true

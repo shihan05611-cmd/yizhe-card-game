@@ -1,0 +1,17 @@
+extends CharacterBody2D
+
+const HIGHER_SYSTEM = preload(
+	"res://systems/example.gd"
+)
+const FORBIDDEN_SCENE = load(
+	"res://scenes/example.tscn"
+)
+
+
+func violate_every_boundary() -> void:
+	get_tree()
+	var generator := RandomNumberGenerator.new()
+	var direct_integer := randi()
+	var direct_float := randf_range(0.0, 1.0)
+	var file := FileAccess.open("user://example.txt", FileAccess.READ)
+	var directory := DirAccess.open("user://")
