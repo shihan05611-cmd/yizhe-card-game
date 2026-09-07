@@ -12,6 +12,7 @@ const DEFAULT_STREAM_NAMES: Array[String] = [
 	"allyPolicy",
 	"enemyPolicy",
 	"run",
+	"deck",
 ]
 
 var _state: int
@@ -132,6 +133,10 @@ func shuffle(values: Array) -> Array:
 		copy[index] = copy[int(swap_index)]
 		copy[int(swap_index)] = temporary
 	return copy
+
+
+func state_snapshot() -> int:
+	return _state
 
 
 static func _utf16_code_units(text: String) -> Array[int]:

@@ -41,6 +41,7 @@ func _test_project_contract(harness: TestHarness) -> void:
 		"window/stretch/aspect=\"expand\"",
 		"left_click={",
 		"right_click={",
+		"toggle_combat_log={",
 	]:
 		harness.assert_contains(project_text, expected_fragment)
 
@@ -60,8 +61,8 @@ func _test_project_contract(harness: TestHarness) -> void:
 	var input_section := project_text.get_slice("[input]", 1).get_slice("[physics]", 0)
 	harness.assert_equal(
 		input_section.count("\"deadzone\":"),
-		2,
-		"project.godot must define only the two M0 mouse actions"
+		3,
+		"project.godot must define the two M0 mouse actions and ART log toggle"
 	)
 	harness.assert_false(input_section.contains("end_turn"), "gameplay actions do not belong to M0")
 

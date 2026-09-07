@@ -4,7 +4,10 @@ param(
     [string]$GodotExe,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SelfTestFailure
+    [switch]$SelfTestFailure,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SelfTestCompileFailure
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,6 +73,12 @@ $godotArguments = @(
 )
 if ($SelfTestFailure) {
     $godotArguments += @('--', '--self-test-failure')
+}
+if ($SelfTestCompileFailure) {
+    if (-not $SelfTestFailure) {
+        $godotArguments += '--'
+    }
+    $godotArguments += '--self-test-compile-failure'
 }
 
 Write-Output "Project root: $projectRoot"

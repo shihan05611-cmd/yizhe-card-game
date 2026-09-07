@@ -1,0 +1,25 @@
+[gd_scene load_steps=3 format=3]
+[ext_resource type="Script" path="res://ui/battle/hero_energy_panel.gd" id="script"]
+[sub_resource type="StyleBoxEmpty" id="Empty"]
+
+[node name="HeroEnergyPanel" type="PanelContainer"]
+theme_override_styles/panel = SubResource("Empty")
+script = ExtResource("script")
+
+[node name="Content" type="VBoxContainer" parent="."]
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="Content"]
+unique_name_in_owner = true
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 12
+
+[node name="Scroll" type="MarginContainer" parent="Content"]
+size_flags_vertical = 3
+
+[node name="Items" type="VBoxContainer" parent="Content/Scroll"]
+unique_name_in_owner = true
+size_flags_vertical = 3
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+

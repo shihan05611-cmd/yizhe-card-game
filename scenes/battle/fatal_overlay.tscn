@@ -1,0 +1,134 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://ui/battle/fatal_overlay.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="Style_fatal_card"]
+bg_color = Color(0.09, 0.045, 0.055, 0.98)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.9, 0.3, 0.28, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+shadow_color = Color(0, 0, 0, 0.72)
+shadow_size = 18
+
+[sub_resource type="StyleBoxFlat" id="Style_icon"]
+bg_color = Color(0.38, 0.08, 0.09, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.43, 0.39, 1)
+corner_radius_top_left = 22
+corner_radius_top_right = 22
+corner_radius_bottom_right = 22
+corner_radius_bottom_left = 22
+
+[sub_resource type="StyleBoxFlat" id="Style_button"]
+bg_color = Color(0.78, 0.55, 0.16, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Style_button_hover"]
+bg_color = Color(0.92, 0.68, 0.24, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="Style_button_pressed"]
+bg_color = Color(0.62, 0.42, 0.11, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="FatalOverlay" type="ColorRect"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.12, 0.018, 0.025, 0.94)
+script = ExtResource("1_script")
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="FatalCard" type="PanelContainer" parent="Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(470, 290)
+layout_mode = 2
+theme_override_styles/panel = SubResource("Style_fatal_card")
+
+[node name="Margin" type="MarginContainer" parent="Center/FatalCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 30
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 30
+theme_override_constants/margin_bottom = 24
+
+[node name="Content" type="VBoxContainer" parent="Center/FatalCard/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 13
+alignment = 1
+
+[node name="IconLabel" type="Label" parent="Center/FatalCard/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(44, 44)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(1, 0.7, 0.66, 1)
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("Style_icon")
+text = "!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Title" type="Label" parent="Center/FatalCard/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.48, 0.44, 1)
+theme_override_font_sizes/font_size = 30
+text = "战斗已停止"
+horizontal_alignment = 1
+
+[node name="CodeLabel" type="Label" parent="Center/FatalCard/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.72, 0.68, 1)
+text = "fatal"
+horizontal_alignment = 1
+
+[node name="MessageLabel" type="Label" parent="Center/FatalCard/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.86, 1)
+text = "战斗发生不可恢复错误。"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="RestartButton" type="Button" parent="Center/FatalCard/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 48)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.08, 0.055, 0.015, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("Style_button")
+theme_override_styles/hover = SubResource("Style_button_hover")
+theme_override_styles/pressed = SubResource("Style_button_pressed")
+text = "重新开始演示战斗"

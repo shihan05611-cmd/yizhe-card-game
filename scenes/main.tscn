@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://app/battle_scene_coordinator.gd" id="1_root"]
+[ext_resource type="PackedScene" path="res://scenes/battle/battle_screen.tscn" id="2_screen"]
+[ext_resource type="Script" path="res://app/battle_presentation_queue.gd" id="3_queue"]
+
+[node name="BattlePresentationRoot" type="Control"]
+custom_minimum_size = Vector2(1200, 700)
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_root")
+
+[node name="BattleScreen" parent="." instance=ExtResource("2_screen")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="PresentationQueue" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("3_queue")

@@ -1,0 +1,1822 @@
+{
+  "schema_version": 1,
+  "fixture_id": "web-m2-damage-golden-v1",
+  "authoritative_modules": {
+    "damage": "scripts/core/damage.js",
+    "contexts": "scripts/core/contexts.js",
+    "random": "scripts/core/random.js"
+  },
+  "authoritative_sha256": {
+    "damage": "be125446dfa0494ce03a6e813298b83a41eff38b821ff99de3a2bd42f64f642e",
+    "contexts": "ebe7bbf69439806488cc466af6a339b1f8c4e69200d96e3868bcce972358540e",
+    "random": "cce70afb44d2f5de53f46c9fbe4d7c005164cfe1d5e050aba27d31a1525c58b6"
+  },
+  "root_seed": "M2-DAMAGE-GOLDEN-v1",
+  "rng_stream": "combat",
+  "format_policy": "max(0, Math.round(value * 10) / 10)",
+  "case_count": 6,
+  "case_order": [
+    "direct_plain",
+    "direct_crit",
+    "direct_block",
+    "direct_crit_block_order",
+    "direct_lethal",
+    "delayed_forces_no_rng"
+  ],
+  "cases": [
+    {
+      "id": "direct_plain",
+      "coverage": [
+        "direct",
+        "plain",
+        "no_rng"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 100,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 20,
+          "category": "direct",
+          "effect": {
+            "source_type": "basic_attack",
+            "source_id": "golden_basic",
+            "source_name": "Golden 普攻",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": true,
+            "counts_as_attack": true,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": false,
+          "crit_rate": 0,
+          "guaranteed_crit": false,
+          "can_block": false
+        },
+        "metadata": {
+          "case_id": "direct_plain",
+          "damage_multiplier": 1.25
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 25,
+          "blocked": false,
+          "died": false,
+          "crit": false,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 20,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 75,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "record": {
+          "amount": 25,
+          "calculated_amount": 25,
+          "blocked": false,
+          "crit": false,
+          "died": false,
+          "old_hp": 100,
+          "new_hp": 75,
+          "raw_amount_before_block": 25,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 20,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 25,
+            "calculated_amount": 25,
+            "blocked": false,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 75,
+            "raw_amount_before_block": 25,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 20,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 25,
+            "calculated_amount": 25,
+            "blocked": false,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 75,
+            "raw_amount_before_block": 25,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 20,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          }
+        ],
+        "rng_trace": [],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1.25
+          },
+          {
+            "op": "format",
+            "input": 25,
+            "output": 25
+          },
+          {
+            "op": "format",
+            "input": 25,
+            "output": 25
+          },
+          {
+            "op": "format",
+            "input": 25,
+            "output": 25
+          },
+          {
+            "op": "format",
+            "input": 75,
+            "output": 75
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "record"
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct_crit",
+      "coverage": [
+        "direct",
+        "crit",
+        "one_rng_draw"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 100,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 20,
+          "category": "direct",
+          "effect": {
+            "source_type": "basic_attack",
+            "source_id": "golden_basic",
+            "source_name": "Golden 普攻",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": true,
+            "counts_as_attack": true,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": true,
+          "crit_rate": 0.95,
+          "guaranteed_crit": false,
+          "can_block": false
+        },
+        "metadata": {
+          "case_id": "direct_crit",
+          "damage_multiplier": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 30,
+          "blocked": false,
+          "died": false,
+          "crit": true,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 20,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": true,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 70,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "record": {
+          "amount": 30,
+          "calculated_amount": 30,
+          "blocked": false,
+          "crit": true,
+          "died": false,
+          "old_hp": 100,
+          "new_hp": 70,
+          "raw_amount_before_block": 30,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 20,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": true,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 30,
+            "calculated_amount": 30,
+            "blocked": false,
+            "crit": true,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 70,
+            "raw_amount_before_block": 30,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 20,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": true,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 30,
+            "calculated_amount": 30,
+            "blocked": false,
+            "crit": true,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 70,
+            "raw_amount_before_block": 30,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 20,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": true,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          }
+        ],
+        "rng_trace": [
+          {
+            "global_index": 0,
+            "case_index": 0,
+            "value": 0.4051674159709364
+          }
+        ],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1
+          },
+          {
+            "op": "rng",
+            "value": 0.4051674159709364
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": 70,
+            "output": 70
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "record"
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct_block",
+      "coverage": [
+        "direct",
+        "block",
+        "one_rng_draw"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 100,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0.95
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 40,
+          "category": "direct",
+          "effect": {
+            "source_type": "basic_attack",
+            "source_id": "golden_basic",
+            "source_name": "Golden 普攻",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": true,
+            "counts_as_attack": true,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": false,
+          "crit_rate": 0,
+          "guaranteed_crit": false,
+          "can_block": true
+        },
+        "metadata": {
+          "case_id": "direct_block",
+          "damage_multiplier": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 20,
+          "blocked": true,
+          "died": false,
+          "crit": false,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 40,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": true
+          },
+          "death_context": null
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 80,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0.95
+        },
+        "record": {
+          "amount": 20,
+          "calculated_amount": 20,
+          "blocked": true,
+          "crit": false,
+          "died": false,
+          "old_hp": 100,
+          "new_hp": 80,
+          "raw_amount_before_block": 40,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 40,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": true
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 20,
+            "calculated_amount": 20,
+            "blocked": true,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 80,
+            "raw_amount_before_block": 40,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 20,
+            "calculated_amount": 20,
+            "blocked": true,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 80,
+            "raw_amount_before_block": 40,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_blocked",
+            "amount": 20,
+            "calculated_amount": 20,
+            "blocked": true,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 80,
+            "raw_amount_before_block": 40,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          }
+        ],
+        "rng_trace": [
+          {
+            "global_index": 1,
+            "case_index": 0,
+            "value": 0.09738278994336724
+          }
+        ],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1
+          },
+          {
+            "op": "format",
+            "input": 40,
+            "output": 40
+          },
+          {
+            "op": "rng",
+            "value": 0.09738278994336724
+          },
+          {
+            "op": "get_block_rate",
+            "value": 0.95
+          },
+          {
+            "op": "format",
+            "input": 20,
+            "output": 20
+          },
+          {
+            "op": "format",
+            "input": 20,
+            "output": 20
+          },
+          {
+            "op": "format",
+            "input": 80,
+            "output": 80
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "event",
+            "type": "unit_blocked"
+          },
+          {
+            "op": "record"
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct_crit_block_order",
+      "coverage": [
+        "direct",
+        "crit",
+        "block",
+        "crit_then_block_rng_order",
+        "two_rng_draws"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 200,
+          "max_hp": 200,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0.95
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 40,
+          "category": "direct",
+          "effect": {
+            "source_type": "basic_attack",
+            "source_id": "golden_basic",
+            "source_name": "Golden 普攻",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": true,
+            "counts_as_attack": true,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": true,
+          "crit_rate": 0.95,
+          "guaranteed_crit": false,
+          "can_block": true
+        },
+        "metadata": {
+          "case_id": "direct_crit_block_order",
+          "damage_multiplier": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 30,
+          "blocked": true,
+          "died": false,
+          "crit": true,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 40,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": true,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": true
+          },
+          "death_context": null
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 170,
+          "max_hp": 200,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0.95
+        },
+        "record": {
+          "amount": 30,
+          "calculated_amount": 30,
+          "blocked": true,
+          "crit": true,
+          "died": false,
+          "old_hp": 200,
+          "new_hp": 170,
+          "raw_amount_before_block": 60,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 40,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": true,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": true
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 30,
+            "calculated_amount": 30,
+            "blocked": true,
+            "crit": true,
+            "died": false,
+            "old_hp": 200,
+            "new_hp": 170,
+            "raw_amount_before_block": 60,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": true,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 30,
+            "calculated_amount": 30,
+            "blocked": true,
+            "crit": true,
+            "died": false,
+            "old_hp": 200,
+            "new_hp": 170,
+            "raw_amount_before_block": 60,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": true,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_blocked",
+            "amount": 30,
+            "calculated_amount": 30,
+            "blocked": true,
+            "crit": true,
+            "died": false,
+            "old_hp": 200,
+            "new_hp": 170,
+            "raw_amount_before_block": 60,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 40,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": true,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": true
+            },
+            "death_context": null
+          }
+        ],
+        "rng_trace": [
+          {
+            "global_index": 2,
+            "case_index": 0,
+            "value": 0.5882021873258054
+          },
+          {
+            "global_index": 3,
+            "case_index": 1,
+            "value": 0.458730025915429
+          }
+        ],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1
+          },
+          {
+            "op": "rng",
+            "value": 0.5882021873258054
+          },
+          {
+            "op": "format",
+            "input": 60,
+            "output": 60
+          },
+          {
+            "op": "rng",
+            "value": 0.458730025915429
+          },
+          {
+            "op": "get_block_rate",
+            "value": 0.95
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": 170,
+            "output": 170
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "event",
+            "type": "unit_blocked"
+          },
+          {
+            "op": "record"
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct_lethal",
+      "coverage": [
+        "direct",
+        "lethal",
+        "death_context",
+        "no_rng"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 30,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 50,
+          "category": "direct",
+          "effect": {
+            "source_type": "basic_attack",
+            "source_id": "golden_basic",
+            "source_name": "Golden 普攻",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": true,
+            "counts_as_attack": true,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": false,
+          "crit_rate": 0,
+          "guaranteed_crit": false,
+          "can_block": false
+        },
+        "metadata": {
+          "case_id": "direct_lethal",
+          "damage_multiplier": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 30,
+          "blocked": false,
+          "died": true,
+          "crit": false,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 50,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": {
+            "source_kind": "ally",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "triggers_enemy_kill_effects": true
+          }
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 0,
+          "max_hp": 100,
+          "alive": false,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "record": {
+          "amount": 30,
+          "calculated_amount": 50,
+          "blocked": false,
+          "crit": false,
+          "died": true,
+          "old_hp": 30,
+          "new_hp": 0,
+          "raw_amount_before_block": 50,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 50,
+            "category": "direct",
+            "effect": {
+              "source_type": "basic_attack",
+              "source_id": "golden_basic",
+              "source_name": "Golden 普攻",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": true,
+              "counts_as_attack": true,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 30,
+            "calculated_amount": 50,
+            "blocked": false,
+            "crit": false,
+            "died": true,
+            "old_hp": 30,
+            "new_hp": 0,
+            "raw_amount_before_block": 50,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 50,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 30,
+            "calculated_amount": 50,
+            "blocked": false,
+            "crit": false,
+            "died": true,
+            "old_hp": 30,
+            "new_hp": 0,
+            "raw_amount_before_block": 50,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 50,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_died",
+            "amount": null,
+            "calculated_amount": null,
+            "blocked": null,
+            "crit": null,
+            "died": null,
+            "old_hp": 0,
+            "new_hp": null,
+            "raw_amount_before_block": null,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 50,
+              "category": "direct",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": {
+              "source_kind": "ally",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "triggers_enemy_kill_effects": true
+            }
+          }
+        ],
+        "rng_trace": [],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1
+          },
+          {
+            "op": "format",
+            "input": 50,
+            "output": 50
+          },
+          {
+            "op": "format",
+            "input": 50,
+            "output": 50
+          },
+          {
+            "op": "format",
+            "input": 30,
+            "output": 30
+          },
+          {
+            "op": "format",
+            "input": -20,
+            "output": 0
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "record"
+          },
+          {
+            "op": "event",
+            "type": "unit_died"
+          },
+          {
+            "op": "death",
+            "target": {
+              "id": "enemy-1",
+              "side": "enemy",
+              "hp": 0,
+              "max_hp": 100,
+              "alive": false,
+              "hp_threshold_crossed": false,
+              "base_block_rate": 0
+            },
+            "death_context": {
+              "source_kind": "ally",
+              "effect": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "triggers_enemy_kill_effects": true
+            },
+            "payload": {
+              "target": {
+                "id": "enemy-1",
+                "side": "enemy",
+                "hp": 0,
+                "max_hp": 100,
+                "alive": false,
+                "hp_threshold_crossed": false,
+                "base_block_rate": 0
+              },
+              "old_hp": 0,
+              "damage_context": {
+                "target_id": "enemy-1",
+                "raw_amount": 50,
+                "category": "direct",
+                "effect": {
+                  "source_type": "basic_attack",
+                  "source_id": "golden_basic",
+                  "source_name": "Golden 普攻",
+                  "source_side": "ally",
+                  "source_actor_id": "hero-9",
+                  "counts_as_skill_cast": false,
+                  "spent_skill_points": false,
+                  "free_cast": false,
+                  "counts_as_basic_attack": true,
+                  "counts_as_attack": true,
+                  "triggers_enemy_kill_effects": true
+                },
+                "dealer_type": "piece",
+                "dealer_name": "Golden 攻击",
+                "dealer_id": "hero-9",
+                "attacker_unit_id": "piece-3",
+                "can_crit": false,
+                "crit_rate": 0,
+                "guaranteed_crit": false,
+                "can_block": false
+              },
+              "effect_context": {
+                "source_type": "basic_attack",
+                "source_id": "golden_basic",
+                "source_name": "Golden 普攻",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": true,
+                "counts_as_attack": true,
+                "triggers_enemy_kill_effects": true
+              },
+              "death_context": {
+                "source_kind": "ally",
+                "effect": {
+                  "source_type": "basic_attack",
+                  "source_id": "golden_basic",
+                  "source_name": "Golden 普攻",
+                  "source_side": "ally",
+                  "source_actor_id": "hero-9",
+                  "counts_as_skill_cast": false,
+                  "spent_skill_points": false,
+                  "free_cast": false,
+                  "counts_as_basic_attack": true,
+                  "counts_as_attack": true,
+                  "triggers_enemy_kill_effects": true
+                },
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "triggers_enemy_kill_effects": true
+              },
+              "metadata": {
+                "case_id": "direct_lethal",
+                "damage_multiplier": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "delayed_forces_no_rng",
+      "coverage": [
+        "delayed",
+        "forced_no_crit",
+        "forced_no_block",
+        "no_rng"
+      ],
+      "input": {
+        "target": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 100,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "context": {
+          "target_id": "enemy-1",
+          "raw_amount": 15,
+          "category": "delayed",
+          "effect": {
+            "source_type": "delayed_damage",
+            "source_id": "golden_burn",
+            "source_name": "Golden 灼烧",
+            "source_side": "ally",
+            "source_actor_id": "hero-9",
+            "counts_as_skill_cast": false,
+            "spent_skill_points": false,
+            "free_cast": false,
+            "counts_as_basic_attack": false,
+            "counts_as_attack": false,
+            "triggers_enemy_kill_effects": true
+          },
+          "dealer_type": "piece",
+          "dealer_name": "Golden 攻击",
+          "dealer_id": "hero-9",
+          "attacker_unit_id": "piece-3",
+          "can_crit": true,
+          "crit_rate": 0.95,
+          "guaranteed_crit": true,
+          "can_block": true
+        },
+        "metadata": {
+          "case_id": "delayed_forces_no_rng",
+          "damage_multiplier": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "dealt": 15,
+          "blocked": false,
+          "died": false,
+          "crit": false,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 15,
+            "category": "delayed",
+            "effect": {
+              "source_type": "delayed_damage",
+              "source_id": "golden_burn",
+              "source_name": "Golden 灼烧",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": false,
+              "counts_as_attack": false,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "target_after": {
+          "id": "enemy-1",
+          "side": "enemy",
+          "hp": 85,
+          "max_hp": 100,
+          "alive": true,
+          "hp_threshold_crossed": false,
+          "base_block_rate": 0
+        },
+        "record": {
+          "amount": 15,
+          "calculated_amount": 15,
+          "blocked": false,
+          "crit": false,
+          "died": false,
+          "old_hp": 100,
+          "new_hp": 85,
+          "raw_amount_before_block": 15,
+          "damage_context": {
+            "target_id": "enemy-1",
+            "raw_amount": 15,
+            "category": "delayed",
+            "effect": {
+              "source_type": "delayed_damage",
+              "source_id": "golden_burn",
+              "source_name": "Golden 灼烧",
+              "source_side": "ally",
+              "source_actor_id": "hero-9",
+              "counts_as_skill_cast": false,
+              "spent_skill_points": false,
+              "free_cast": false,
+              "counts_as_basic_attack": false,
+              "counts_as_attack": false,
+              "triggers_enemy_kill_effects": true
+            },
+            "dealer_type": "piece",
+            "dealer_name": "Golden 攻击",
+            "dealer_id": "hero-9",
+            "attacker_unit_id": "piece-3",
+            "can_crit": false,
+            "crit_rate": 0.95,
+            "guaranteed_crit": false,
+            "can_block": false
+          },
+          "death_context": null
+        },
+        "event_trace": [
+          {
+            "type": "damage_applied",
+            "amount": 15,
+            "calculated_amount": 15,
+            "blocked": false,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 85,
+            "raw_amount_before_block": 15,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 15,
+              "category": "delayed",
+              "effect": {
+                "source_type": "delayed_damage",
+                "source_id": "golden_burn",
+                "source_name": "Golden 灼烧",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": false,
+                "counts_as_attack": false,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          },
+          {
+            "type": "unit_damaged",
+            "amount": 15,
+            "calculated_amount": 15,
+            "blocked": false,
+            "crit": false,
+            "died": false,
+            "old_hp": 100,
+            "new_hp": 85,
+            "raw_amount_before_block": 15,
+            "damage_context": {
+              "target_id": "enemy-1",
+              "raw_amount": 15,
+              "category": "delayed",
+              "effect": {
+                "source_type": "delayed_damage",
+                "source_id": "golden_burn",
+                "source_name": "Golden 灼烧",
+                "source_side": "ally",
+                "source_actor_id": "hero-9",
+                "counts_as_skill_cast": false,
+                "spent_skill_points": false,
+                "free_cast": false,
+                "counts_as_basic_attack": false,
+                "counts_as_attack": false,
+                "triggers_enemy_kill_effects": true
+              },
+              "dealer_type": "piece",
+              "dealer_name": "Golden 攻击",
+              "dealer_id": "hero-9",
+              "attacker_unit_id": "piece-3",
+              "can_crit": false,
+              "crit_rate": 0.95,
+              "guaranteed_crit": false,
+              "can_block": false
+            },
+            "death_context": null
+          }
+        ],
+        "rng_trace": [],
+        "callback_trace": [
+          {
+            "op": "get_damage_multiplier",
+            "value": 1
+          },
+          {
+            "op": "format",
+            "input": 15,
+            "output": 15
+          },
+          {
+            "op": "format",
+            "input": 15,
+            "output": 15
+          },
+          {
+            "op": "format",
+            "input": 15,
+            "output": 15
+          },
+          {
+            "op": "format",
+            "input": 85,
+            "output": 85
+          },
+          {
+            "op": "event",
+            "type": "damage_applied"
+          },
+          {
+            "op": "event",
+            "type": "unit_damaged"
+          },
+          {
+            "op": "record"
+          }
+        ]
+      }
+    }
+  ]
+}

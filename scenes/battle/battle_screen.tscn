@@ -1,0 +1,148 @@
+[gd_scene load_steps=12 format=3]
+[ext_resource type="Script" path="res://ui/battle/battle_screen.gd" id="script"]
+[ext_resource type="PackedScene" path="res://scenes/battle/battle_hud.tscn" id="hud"]
+[ext_resource type="PackedScene" path="res://scenes/battle/board_grid.tscn" id="board"]
+[ext_resource type="PackedScene" path="res://scenes/battle/hero_energy_panel.tscn" id="heroes"]
+[ext_resource type="PackedScene" path="res://scenes/battle/combat_log.tscn" id="log"]
+[ext_resource type="PackedScene" path="res://scenes/battle/battle_result_overlay.tscn" id="result"]
+[ext_resource type="PackedScene" path="res://scenes/battle/fatal_overlay.tscn" id="fatal"]
+[ext_resource type="PackedScene" path="res://scenes/cards/hand_view.tscn" id="hand"]
+[ext_resource type="PackedScene" path="res://scenes/effects/skill_fx_player.tscn" id="fx"]
+[ext_resource type="Script" path="res://ui/art/arena_backdrop.gd" id="art"]
+
+[node name="BattleScreen" type="Control"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+custom_minimum_size = Vector2(1200, 700)
+script = ExtResource("script")
+
+[node name="Background" type="Control" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("art")
+
+[node name="Battlefield" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = 80.0
+offset_right = -32.0
+offset_bottom = -268.0
+theme_override_constants/separation = 22
+mouse_filter = 2
+
+[node name="AllyHeroes" parent="Battlefield" instance=ExtResource("heroes")]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(174, 0)
+side_title = "我方弈者"
+
+[node name="Arena" type="HBoxContainer" parent="Battlefield"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 58
+mouse_filter = 2
+
+[node name="AllyBoard" parent="Battlefield/Arena" instance=ExtResource("board")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="EnemyBoard" parent="Battlefield/Arena" instance=ExtResource("board")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="EnemyHeroes" parent="Battlefield" instance=ExtResource("heroes")]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(174, 0)
+side_title = "敌方弈者"
+
+[node name="HandView" parent="." instance=ExtResource("hand")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 151.0
+offset_top = -252.0
+offset_right = -151.0
+offset_bottom = -6.0
+custom_minimum_size = Vector2(0, 0)
+z_index = 2
+
+[node name="BattleHud" parent="." instance=ExtResource("hud")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 3
+
+[node name="LogSlot" type="MarginContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -330.0
+offset_top = 76.0
+offset_right = -22.0
+offset_bottom = -268.0
+visible = false
+z_index = 6
+
+[node name="LogClip" type="Control" parent="LogSlot"]
+layout_mode = 2
+clip_contents = true
+
+[node name="CombatLog" parent="LogSlot/LogClip" instance=ExtResource("log")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+
+[node name="SkillFxPlayer" parent="." instance=ExtResource("fx")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 4
+
+[node name="FeedbackLayer" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 5
+
+[node name="ResultOverlay" parent="." instance=ExtResource("result")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 10
+
+[node name="FatalOverlay" parent="." instance=ExtResource("fatal")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 10
+

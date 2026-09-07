@@ -1,0 +1,78 @@
+[gd_scene load_steps=3 format=3]
+[ext_resource type="Script" path="res://ui/battle/hero_energy_item.gd" id="script"]
+[sub_resource type="StyleBoxEmpty" id="Empty"]
+
+[node name="HeroEnergyItem" type="PanelContainer"]
+custom_minimum_size = Vector2(150, 76)
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Empty")
+script = ExtResource("script")
+
+[node name="Row" type="Control" parent="."]
+layout_mode = 2
+
+[node name="PortraitFrame" type="Control" parent="Row"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = -45.0
+
+
+[node name="PortraitPlaceholder" type="Panel" parent="Row/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+
+[node name="PlaceholderLabel" type="Label" parent="Row/PortraitFrame/PortraitPlaceholder"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Portrait" type="TextureRect" parent="Row/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Info" type="VBoxContainer" parent="Row"]
+layout_mode = 1
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -44.0
+offset_right = -12.0
+offset_bottom = 0.0
+theme_override_constants/separation = 2
+
+[node name="NameLabel" type="Label" parent="Row/Info"]
+unique_name_in_owner = true
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+
+[node name="EnergyBar" type="ProgressBar" parent="Row/Info"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 4)
+show_percentage = false
+
+[node name="EnergyLabel" type="Label" parent="Row/Info"]
+unique_name_in_owner = true
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 10
+

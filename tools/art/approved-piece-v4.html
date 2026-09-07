@@ -1,0 +1,249 @@
+<section id="yizhe-piece-v4" aria-label="弈者四兵种棋像">
+  <style>
+    #yizhe-piece-v4 { width:100%; color:var(--foreground,#e8e1cd); }
+    #yizhe-piece-v4 .pv3-heading { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+    #yizhe-piece-v4 h2 { margin:0; }
+    #yizhe-piece-v4 canvas { width:100%; display:block; }
+    #yizhe-piece-v4 .pv3-controls { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding-top:16px; }
+    #yizhe-piece-v4 .pv3-group { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+    #yizhe-piece-v4 .pv3-note { margin:12px 0 0; }
+  </style>
+  <header class="pv3-heading"><h2>兵种棋像</h2><span class="text-small text-muted">无脸侧视 / 肆</span></header>
+  <canvas role="img" aria-label="无脸甲卒侧视棋像，左右相向。下方双方各六枚，两列三排。">无脸兵种棋像，左右相向。</canvas>
+  <div class="pv3-controls" aria-label="棋像观察">
+    <div class="pv3-group" aria-label="兵种选择">
+      <button class="btn btn-primary" type="button" data-kind="guard" aria-pressed="true">甲卒</button>
+      <button class="btn" type="button" data-kind="crossbow" aria-pressed="false">机弩</button>
+      <button class="btn" type="button" data-kind="assassin" aria-pressed="false">刺客</button>
+      <button class="btn" type="button" data-kind="standard" aria-pressed="false">旗兵</button>
+      <button class="btn" type="button" data-action="move">顶盾一次</button>
+    </div>
+    <div class="pv3-group">
+      <label class="form-check form-switch"><input class="form-check-input" type="checkbox" data-option="enemy" checked><span class="form-check-label">敌我配色</span></label>
+      <label class="form-check form-switch"><input class="form-check-input" type="checkbox" data-option="silhouette"><span class="form-check-label">只看轮廓</span></label>
+    </div>
+  </div>
+  <p class="pv3-note text-small text-muted" aria-live="polite">甲卒 / 持盾对阵</p>
+  <script>
+  (()=>{
+    const root=document.getElementById('yizhe-piece-v4');
+    const canvas=root.querySelector('canvas'),c=canvas.getContext('2d');
+    const note=root.querySelector('.pv3-note'),moveButton=root.querySelector('[data-action="move"]');
+    const motion=matchMedia('(prefers-reduced-motion: reduce)');
+    const state={kind:'guard',enemy:true,silhouette:false};
+    const names={guard:'甲卒',crossbow:'机弩',assassin:'刺客',standard:'旗兵'};
+    const actions={guard:'顶盾',crossbow:'发弩',assassin:'出刃',standard:'举旗'};
+    const mottos={guard:'持盾对阵',crossbow:'机弩待发',assassin:'藏锋近身',standard:'执旗立阵'};
+    const colors={
+      ally:{ink:'#141918',black:'#222827',armor:'#485854',armorHi:'#6f7e70',cloth:'#627c70',clothHi:'#8c9d86',clothShade:'#3d5148',linen:'#b4b1a0',linenShade:'#7c8177',gold:'#ba9959',metal:'#a4ada0',metalShade:'#606f68'},
+      enemy:{ink:'#1c1918',black:'#2c2928',armor:'#575451',armorHi:'#80796c',cloth:'#934f45',clothHi:'#b87660',clothShade:'#613d36',linen:'#b9ab99',linenShade:'#84796e',gold:'#c0a05c',metal:'#b6ad9a',metalShade:'#7c746a'}
+    };
+    let p=colors.ally,silhouette=false,start=null,raf=0,held=false;
+    const paths=new Map();
+    function path(d){if(!paths.has(d))paths.set(d,new Path2D(d));return paths.get(d);}
+    function shape(d,fill,stroke=p.ink,w=2.4){
+      c.fillStyle=silhouette?'#d6d6bd':fill;c.fill(path(d));
+      if(!silhouette&&stroke){c.strokeStyle=stroke;c.lineWidth=w;c.stroke(path(d));}
+    }
+    function line(d,color=p.ink,w=1.3){if(silhouette)return;c.strokeStyle=color;c.lineWidth=w;c.stroke(path(d));}
+    function wire(d,color=p.linen,w=1){c.strokeStyle=silhouette?'#d6d6bd':color;c.lineWidth=w;c.stroke(path(d));}
+    function rivet(x,y,r=1.5){if(silhouette)return;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fillStyle=p.gold;c.fill();}
+    function hatch(d){line(d,p.ink,1.1);}
+    function base(){
+      if(!silhouette){c.beginPath();c.ellipse(0,4,44,4,0,0,Math.PI*2);c.fillStyle='rgba(11,16,13,.22)';c.fill();}
+      shape('M-40 -8 L-32 -14 L29 -14 L40 -7 L36 1 L-35 1 Z',p.black,p.ink,2);
+      shape('M-40 -8 L-32 -14 L29 -14 L40 -7 L32 -3 L-33 -3 Z',p.armor,p.ink,1.5);
+      line('M-30 -11 L23 -11 M-15 0 L13 0',p.gold,.9);
+    }
+    function coat(slim=false){
+      c.save();if(slim)c.scale(.82,1);
+      // A single continuous robe-column flows into the plinth, without leg divisions.
+      shape('M-18 -137 Q-30 -119 -27 -99 L-23 -83 Q-16 -54 -16 -36 Q-17 -22 -27 -14 Q-1 -8 26 -14 Q14 -23 13 -36 L19 -100 Q22 -120 7 -137 Z',p.cloth);
+      shape('M-18 -129 L-17 -99 L-12 -80 L-7 -47 Q-6 -25 -15 -14 L-25 -14 Q-15 -27 -16 -41 L-23 -83 L-25 -107 Z',p.clothShade,null);
+      shape('M-22 -130 L-11 -127 L-9 -108 L-15 -97 L-21 -115 Z',p.clothHi,null);
+      shape('M7 -77 L14 -75 L11 -42 L14 -24 L8 -25 L5 -45 Z',p.clothHi,null);
+      line('M-25 -97 L-21 -83 L-16 -66 M-13 -55 L-10 -40',p.ink,1.8);
+      hatch('M-16 -32 L-11 -37 M-17 -27 L-11 -32 M-19 -22 L-12 -27');
+      shape('M-23 -19 Q0 -14 21 -19 L26 -14 Q0 -8 -27 -14 Z',p.armor,p.ink,1.4);
+      line('M-19 -15 Q0 -11 18 -15',p.gold,.8);
+      shape('M-24 -86 L16 -86 L17 -78 L-24 -78 Z',p.black,p.ink,1.2);
+      shape('M7 -86 L16 -86 L16 -79 L7 -79 Z',p.gold,p.ink,1.1);
+      line('M10 -84 L13 -84 L13 -81',p.ink,.8);c.restore();
+    }
+    function collar(){
+      shape('M-22 -147 L-10 -154 L13 -144 L19 -133 L8 -127 L-7 -132 L-23 -135 Z',p.linen);
+      shape('M-20 -144 L-7 -140 L12 -134 L8 -127 L-7 -132 L-23 -135 Z',p.linenShade,null);
+      line('M-18 -143 L-2 -136 M2 -135 L12 -132',p.ink,1.3);
+      hatch('M-20 -140 L-16 -136 M-16 -140 L-12 -135 M-12 -138 L-8 -134');
+    }
+    function helmet(){
+      // One uninterrupted closed face plate. No eye slit or facial marks.
+      shape('M-17 -184 Q-7 -194 8 -188 L22 -179 L28 -163 L23 -142 L6 -142 L-13 -155 Z',p.black);
+      shape('M-23 -161 Q-27 -177 -15 -188 Q-7 -196 5 -192 Q21 -189 25 -172 L31 -165 L17 -163 L5 -171 L-14 -159 Z',p.armor);
+      shape('M-20 -176 Q-15 -189 -4 -190 L7 -187 L13 -176 L3 -175 L-10 -168 Z',p.armorHi,null);
+      shape('M-16 -188 L-15 -196 L-8 -201 L-3 -199 L-2 -192 L6 -180 L-2 -177 Z',p.cloth,p.ink,1.8);
+      line('M-12 -194 L-6 -188',p.clothHi,1.3);
+      shape('M-25 -162 L-12 -169 L-1 -163 L0 -144 L-12 -138 L-22 -143 Z',p.armor);
+      shape('M-17 -160 L-6 -162 L-5 -147 L-13 -143 L-20 -146 Z',p.armorHi,null);
+      line('M-23 -155 L-17 -157 M-23 -149 L-18 -150',p.ink,1.6);
+      line('M-18 -181 Q-13 -187 -6 -187 M-23 -170 L-21 -165',p.ink,2.8);
+      hatch('M-22 -158 L-16 -163 M-21 -154 L-15 -159 M-19 -150 L-13 -155');
+      rivet(-7,-158,1.5);
+    }
+    function shoulder(){
+      shape('M-14 -133 Q-2 -140 9 -127 L10 -115 L-3 -109 L-20 -116 L-23 -126 Z',p.armor);
+      shape('M-18 -128 Q-8 -136 2 -128 L5 -122 L-7 -119 L-19 -122 Z',p.armorHi,null);
+      line('M-20 -118 L-7 -112 L6 -116',p.ink,2.8);
+      hatch('M-18 -126 L-12 -130 M-16 -122 L-9 -127 M-12 -120 L-5 -125');
+      line('M-13 -114 L-5 -112',p.gold,1.1);
+    }
+    function fist(x,y,rotation=0){
+      c.save();c.translate(x,y);c.rotate(rotation);
+      shape('M-5 -6 L2 -7 L7 -3 L7 4 L2 7 L-6 4 L-7 -1 Z',p.armorHi,p.ink,1.6);
+      line('M-3 -3 L3 -2 M-3 1 L3 2',p.ink,1);c.restore();
+    }
+    function guard(pose){
+      coat();collar();helmet();
+      shape('M-7 -124 L5 -124 L15 -110 L33 -112 L38 -103 L14 -96 L-2 -105 L-14 -118 Z',p.linen);
+      shape('M-5 -112 L13 -102 L30 -108 L32 -101 L14 -96 L-2 -105 Z',p.linenShade,null);
+      line('M8 -111 L4 -105 M13 -107 L10 -101 M21 -109 L23 -102',p.ink,1.4);
+      shoulder();
+      c.save();c.translate(pose*6,-pose*2);
+      fist(33,-107,.1);
+      // Narrow oblique shield face plus visible rear rim, held in front of the body.
+      shape('M36 -136 L48 -133 L61 -121 L57 -65 Q52 -44 39 -29 L31 -39 L33 -84 Z',p.black);
+      shape('M43 -132 L58 -121 L54 -65 Q48 -43 39 -33 L39 -82 Z',p.cloth);
+      shape('M51 -123 L58 -121 L54 -65 Q48 -43 39 -33 L43 -59 Z',p.clothShade,null);
+      line('M44 -124 L43 -83 L42 -57',p.clothHi,1.6);
+      line('M54 -118 L50 -71 Q46 -52 42 -45',p.gold,1.1);
+      shape('M44 -103 L50 -99 L48 -88 L42 -85 Z',p.gold,p.ink,1.2);
+      shape('M45 -98 L47 -96 L46 -91 L44 -91 Z',p.black,null);
+      line('M33 -91 L34 -69 M35 -55 L33 -43',p.ink,3);
+      hatch('M44 -67 L49 -72 M43 -62 L48 -67 M42 -57 L47 -62');
+      rivet(48,-119,1.1);rivet(44,-54,1);c.restore();
+    }
+    function hood(){
+      // Profile hood with an entirely black, unbroken face opening.
+      shape('M-27 -170 Q-25 -183 -17 -194 L-10 -204 L9 -193 Q22 -185 27 -166 L22 -143 L7 -136 L-14 -144 L-28 -154 Z',p.cloth);
+      shape('M-11 -199 L-6 -184 L-17 -163 L-18 -151 L-26 -155 L-25 -174 Z',p.clothHi,null);
+      shape('M10 -183 L22 -172 L27 -166 L22 -143 L10 -140 L3 -147 L5 -168 Z',p.black,p.ink,1.8);
+      shape('M-22 -151 L-9 -143 L6 -137 L17 -140 L14 -130 L1 -126 L-20 -137 L-29 -138 Z',p.linen);
+      shape('M-26 -138 L-16 -139 L1 -130 L14 -134 L14 -130 L1 -126 L-20 -137 Z',p.linenShade,null);
+      line('M-20 -173 L-17 -179 M-20 -155 L-13 -147 M-22 -137 L-9 -131',p.ink,2);
+      hatch('M-24 -163 L-19 -168 M-24 -158 L-18 -164 M-21 -153 L-16 -158');
+    }
+    function crossbow(pose){
+      coat();
+      hood();
+      shape('M-7 -132 L3 -133 L20 -119 L41 -117 L43 -108 L16 -109 L-4 -120 L-14 -126 Z',p.linen);
+      shape('M10 -123 L20 -114 L40 -112 L43 -108 L16 -109 L-4 -120 Z',p.linenShade,null);
+      shape('M-17 -131 L-9 -138 L2 -133 L8 -125 L1 -117 L-11 -118 L-20 -124 Z',p.armor);
+      shape('M-16 -129 L-8 -133 L0 -130 L2 -125 L-10 -123 Z',p.armorHi,null);
+      hatch('M-16 -126 L-10 -130 M-12 -123 L-6 -128');
+      line('M24 -118 L23 -110 M30 -117 L30 -110 M35 -116 L36 -109',p.ink,1.2);
+      c.save();c.translate(-pose*3,0);
+      // Short horizontal stock, trigger housing, and transverse limbs in a shallow top-side view.
+      shape('M1 -129 L68 -129 L73 -123 L34 -119 L27 -106 L18 -107 L20 -121 L3 -121 Z',p.armor,p.ink,2);
+      shape('M8 -129 L66 -129 L68 -125 L9 -124 Z',p.gold,p.ink,1);
+      shape('M28 -118 L34 -119 L33 -111 L28 -109 Z',p.black,p.ink,1);
+      shape('M57 -147 Q65 -143 66 -136 L75 -124 L68 -111 Q63 -102 54 -99 L53 -104 Q61 -108 62 -115 L68 -124 L61 -134 Q61 -140 55 -143 Z',p.metal,p.ink,2);
+      shape('M69 -128 L75 -124 L68 -111 L61 -105 L63 -114 Z',p.metalShade,null);
+      wire('M56 -145 L'+(36+pose*24)+' -125 L54 -101',p.linen,1);
+      shape('M62 -131 L70 -130 L72 -121 L64 -120 Z',p.gold,p.ink,1.3);
+      wire('M24 -132 L80 -132',p.metal,1.6);
+      shape('M83 -132 L76 -135 L78 -132 L76 -129 Z',p.metal,p.ink,.8);
+      line('M7 -127 L13 -127 M17 -127 L22 -127',p.ink,1);
+      fist(40,-112,0);fist(17,-118,-.2);c.restore();
+    }
+    function assassin(pose){
+      coat(true);
+      // Tighter hood and dark shoulder mantle keep the light class compact.
+      c.save();c.translate(1,0);c.scale(.82,1);hood();c.restore();
+      shape('M-21 -140 L-9 -143 L4 -133 L13 -127 L6 -117 L-9 -119 L-23 -125 Z',p.black);
+      shape('M-19 -134 L-9 -136 L4 -128 L0 -123 L-9 -125 L-19 -126 Z',p.clothShade,null);
+      line('M-20 -129 L-12 -124 M-18 -124 L-10 -120',p.armorHi,1);
+      shape('M-8 -124 L1 -124 L8 -110 L25 -107 L26 -98 L3 -101 L-10 -112 Z',p.armor);
+      shape('M-7 -115 L5 -105 L22 -103 L22 -99 L3 -101 L-10 -112 Z',p.black,null);
+      line('M5 -108 L3 -102 M11 -107 L10 -101 M17 -106 L17 -100',p.linenShade,1.3);
+      c.save();c.translate(pose*10,-pose*3);
+      shape('M21 -105 L36 -111 L39 -105 L25 -98 Z',p.black,p.ink,1.7);
+      line('M27 -104 L29 -100 M32 -107 L34 -103',p.gold,.9);
+      shape('M34 -113 L38 -115 L43 -103 L38 -102 Z',p.gold,p.ink,1.3);
+      shape('M39 -111 L67 -118 L59 -108 L42 -105 Z',p.metal,p.ink,1.8);
+      shape('M42 -107 L62 -114 L59 -108 Z',p.metalShade,null);
+      line('M43 -110 L61 -115',p.linen,.9);fist(24,-102,-.35);c.restore();
+      shape('M-18 -93 L-8 -89 L-3 -80 L-10 -76 L-21 -85 Z',p.armor,p.ink,1.5);
+      line('M-16 -86 L-10 -82',p.linenShade,.9);
+    }
+    function standard(pose){
+      coat();collar();helmet();
+      shape('M-6 -125 L5 -123 L13 -106 L35 -105 L37 -96 L9 -95 L-3 -110 L-13 -118 Z',p.linen);
+      shape('M-3 -113 L11 -100 L32 -101 L35 -96 L9 -95 L-3 -110 Z',p.linenShade,null);
+      shoulder();line('M14 -104 L13 -96 M20 -104 L20 -96 M26 -103 L27 -96',p.ink,1.2);
+      c.save();c.translate(38,-17);c.rotate(-pose*.055);c.translate(-38,17);
+      shape('M35 -233 L40 -233 L40 -18 L35 -18 Z',p.gold,p.ink,1.6);
+      shape('M34 -234 L37 -241 L41 -235 L40 -229 L35 -229 Z',p.metal,p.ink,1.5);
+      // Compact banner streams backward above the helmet, clear of adjacent cells.
+      shape('M34 -231 Q10 -239 -14 -232 L-20 -216 L-8 -219 L-12 -205 Q12 -212 34 -205 Z',p.cloth,p.ink,2);
+      shape('M-14 -232 L-20 -216 L-8 -219 L-12 -205 L-3 -210 L1 -229 Z',p.clothShade,null);
+      shape('M29 -232 L34 -231 L34 -205 L29 -207 Z',p.gold,p.ink,1);
+      line('M-9 -229 Q8 -233 25 -229 M-6 -209 Q10 -214 26 -210',p.clothHi,1.3);
+      shape('M9 -228 L16 -223 L9 -216 L3 -221 Z',p.gold,p.ink,1);
+      line('M-13 -218 L-8 -223 M-10 -214 L-5 -219',p.ink,1);
+      line('M36 -194 L39 -194 M36 -187 L39 -187 M36 -180 L39 -180',p.black,1.4);
+      fist(36,-101,.1);c.restore();
+    }
+    function piece(kind,x,y,s,dir,enemy,pose=0){
+      p=enemy?colors.enemy:colors.ally;silhouette=state.silhouette;
+      c.save();c.translate(x,y);c.scale(s*dir,s);c.lineCap='round';c.lineJoin='round';
+      base();
+      if(kind==='guard')guard(pose);else if(kind==='crossbow')crossbow(pose);else if(kind==='assassin')assassin(pose);else standard(pose);
+      c.restore();
+    }
+    function label(text,x,y,align='left',color='#bbc0ab',size=12){c.fillStyle=color;c.textAlign=align;c.font=`400 ${size}px "Microsoft YaHei",sans-serif`;c.fillText(text,x,y);}
+    function rule(x,y,x2,y2,alpha=.16){c.beginPath();c.moveTo(x,y);c.lineTo(x2,y2);c.strokeStyle=`rgba(204,202,173,${alpha})`;c.lineWidth=1;c.stroke();}
+    function draw(now=performance.now()){
+      const width=Math.max(1,canvas.parentElement.clientWidth),mobile=width<590;
+      const large=Math.min(1.42,(width-48)/330),heroY=58+242*large;
+      const matrixTop=heroY+76,rowStep=mobile?90:94,height=Math.ceil(matrixTop+rowStep*3+13);
+      const dpr=Math.min(devicePixelRatio||1,2);
+      if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.height=height+'px';}
+      c.setTransform(dpr,0,0,dpr,0,0);c.fillStyle='#34443b';c.fillRect(0,0,width,height);
+      let pose=held?.85:0;
+      if(start!==null){const t=(now-start)/660;if(t>=1){start=null;moveButton.disabled=false;note.textContent=names[state.kind]+' / '+mottos[state.kind];}else pose=t<.3?Math.sin(t/.3*Math.PI/2):Math.pow(Math.cos((t-.3)/.7*Math.PI/2),2);}
+      const left=width*.25,right=width*.75;
+      label(names[state.kind],width/2,29,'center','#dedfca',15);
+      rule(width/2-13,46,width/2+13,46,.25);
+      piece(state.kind,left,heroY,large,1,false,pose);
+      piece(state.kind,right,heroY,large,-1,state.enemy,0);
+      rule(left-33,heroY+13,left+33,heroY+13,.18);rule(right-33,heroY+13,right+33,heroY+13,.18);
+      label('我方',left,heroY+36,'center','#c0c9b2',11);label('敌方',right,heroY+36,'center','#d0b69e',11);
+      rule(18,matrixTop-19,width-18,matrixTop-19,.13);
+      rule(width/2,matrixTop+5,width/2,height-19,.12);
+      const small=Math.min(.35,(width*.18-6)/127);
+      for(let row=0;row<3;row++)for(let col=0;col<2;col++){
+        const x=width*(.105+col*.19),y=matrixTop+(row+1)*rowStep-8;
+        piece(state.kind,x,y,small,1,false,row===2&&col===1?pose:0);
+        piece(state.kind,width-x,y,small,-1,state.enemy,0);
+      }
+      if(start!==null){cancelAnimationFrame(raf);raf=requestAnimationFrame(draw);}
+    }
+    function update(){
+      start=null;held=false;cancelAnimationFrame(raf);moveButton.disabled=false;
+      root.querySelectorAll('[data-kind]').forEach(b=>{const active=b.dataset.kind===state.kind;b.setAttribute('aria-pressed',String(active));b.classList.toggle('btn-primary',active);});
+      moveButton.textContent=actions[state.kind]+'一次';
+      note.textContent=names[state.kind]+' / '+mottos[state.kind]+(state.silhouette?' / 轮廓':'');
+      canvas.setAttribute('aria-label','无脸'+names[state.kind]+'侧视棋像，左方向右、右方向左。双方放大展示，下方各六枚两列三排。'+(state.silhouette?'实心轮廓。':state.enemy?'青灰我方与暗朱红敌方。':'双方同色。'));
+      draw();
+    }
+    root.querySelectorAll('[data-kind]').forEach(b=>b.addEventListener('click',()=>{state.kind=b.dataset.kind;update();}));
+    root.querySelectorAll('[data-option]').forEach(input=>input.addEventListener('change',()=>{state[input.dataset.option]=input.checked;update();}));
+    moveButton.addEventListener('click',()=>{
+      cancelAnimationFrame(raf);
+      if(motion.matches){held=!held;note.textContent=names[state.kind]+' / '+(held?actions[state.kind]+'姿态（减少动态效果）':mottos[state.kind]);draw();}
+      else{start=performance.now();moveButton.disabled=true;note.textContent=names[state.kind]+' / '+actions[state.kind]+'，归位';draw(start);}
+    });
+    new ResizeObserver(()=>draw()).observe(canvas.parentElement);draw();
+  })();
+  </script>
+</section>

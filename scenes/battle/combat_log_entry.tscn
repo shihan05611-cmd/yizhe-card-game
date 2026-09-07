@@ -1,0 +1,26 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/battle/combat_log_entry.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="Style_entry"]
+bg_color = Color(0.075, 0.082, 0.115, 0.92)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+content_margin_left = 7.0
+content_margin_top = 5.0
+content_margin_right = 7.0
+content_margin_bottom = 5.0
+
+[node name="CombatLogEntry" type="PanelContainer"]
+custom_minimum_size = Vector2(250, 30)
+theme_override_styles/panel = SubResource("Style_entry")
+script = ExtResource("1_script")
+
+[node name="MessageLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "战斗日志"
+autowrap_mode = 2
