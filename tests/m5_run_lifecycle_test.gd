@@ -79,8 +79,7 @@ func _test_node_frontier(harness: TestHarness) -> void:
 	harness.assert_false(lifecycle.choose_node(node_id, errors))
 	harness.assert_equal(state, selected)
 	harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
-	if state["status"] == "reward":
-		harness.assert_true(lifecycle.recruit_hero(state["reward_options"][0]["payload_id"], errors), "; ".join(errors))
+	_resolve_all_rewards(lifecycle, state, harness, errors)
 	harness.assert_equal(state["status"], "map")
 	harness.assert_equal(_available_ids(state), expected_next)
 	harness.assert_true(_node_by_id(state, node_id)["completed"])
@@ -97,6 +96,7 @@ func _test_recruitment_and_deployment(harness: TestHarness) -> void:
 	harness.assert_equal(milestone["column"], 2)
 	harness.assert_true(lifecycle.choose_node(milestone["id"], errors), "; ".join(errors))
 	harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
+	_resolve_battle_reward(lifecycle, state, harness, errors)
 	harness.assert_equal(state["status"], "reward")
 	harness.assert_true(state["reward_pending"])
 	harness.assert_equal(state["reward_options"].size(), 4)
@@ -127,10 +127,12 @@ func _test_recruitment_and_deployment(harness: TestHarness) -> void:
 		var node := _first_available(state)
 		harness.assert_true(lifecycle.choose_node(node["id"], errors), "; ".join(errors))
 		harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
+		_resolve_all_rewards(lifecycle, state, harness, errors)
 	var boss := _first_available(state)
 	harness.assert_equal(boss["type"], "boss")
 	harness.assert_true(lifecycle.choose_node(boss["id"], errors), "; ".join(errors))
 	harness.assert_true(lifecycle.complete_current_battle(true, errors), "; ".join(errors))
+	_resolve_battle_reward(lifecycle, state, harness, errors)
 	harness.assert_equal(state["status"], "reward", "chapter-one boss is the second milestone")
 	harness.assert_equal(state["reward_options"].size(), 4)
 	var second_recruit_id: int = state["reward_options"][0]["payload_id"]
@@ -153,6 +155,7 @@ func _test_deck_rebuild(harness: TestHarness) -> void:
 	var milestone := _first_available(state)
 	harness.assert_true(lifecycle.choose_node(milestone["id"], errors), "; ".join(errors))
 	harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
+	_resolve_battle_reward(lifecycle, state, harness, errors)
 	var active_recruit_id := 0
 	for option: Dictionary in state["reward_options"]:
 		var hero: Variant = catalogs["characters"]["players"][option["payload_id"]]
@@ -200,10 +203,10 @@ func _test_terminals_and_quit(harness: TestHarness) -> void:
 	var state: Dictionary = clear["state"]
 	var previous_chapter := 1
 	var guard := 0
-	while state["status"] != "cleared" and guard < 40:
+	while state["status"] != "cleared" and guard < 100:
 		guard += 1
 		if state["status"] == "reward":
-			harness.assert_true(lifecycle.recruit_hero(state["reward_options"][0]["payload_id"], errors), "; ".join(errors))
+			_resolve_all_rewards(lifecycle, state, harness, errors)
 			continue
 		var node := _first_available(state)
 		harness.assert_false(node.is_empty(), "map must expose a path to the boss")
@@ -216,7 +219,7 @@ func _test_terminals_and_quit(harness: TestHarness) -> void:
 			previous_chapter = state["chapter"]
 	harness.assert_equal(state["status"], "cleared")
 	harness.assert_equal(state["chapter"], 3)
-	harness.assert_true(guard < 40)
+	harness.assert_true(guard < 100)
 	harness.assert_true(lifecycle.quit_run(errors), "; ".join(errors))
 	harness.assert_equal(state, RunContractScript.create(), "cleared and failed both quit to canonical idle")
 
@@ -269,8 +272,7 @@ func _reach_column(
 		var node := _first_available(state)
 		harness.assert_true(lifecycle.choose_node(node["id"], errors), "; ".join(errors))
 		harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
-		if state["status"] == "reward":
-			harness.assert_true(lifecycle.recruit_hero(state["reward_options"][0]["payload_id"], errors), "; ".join(errors))
+		_resolve_all_rewards(lifecycle, state, harness, errors)
 
 
 func _reach_battle(
@@ -304,6 +306,39 @@ func _complete_selected(
 		if state["status"] == "fighting"
 		else lifecycle.complete_current_node(errors)
 	)
+
+
+func _resolve_battle_reward(
+	lifecycle: Variant,
+	state: Dictionary,
+	harness: TestHarness,
+	errors: Array[String],
+) -> void:
+	if state["status"] != "reward" or state["reward_options"].is_empty():
+		return
+	if state["reward_options"][0]["type"] == "hero":
+		return
+	harness.assert_true(
+		lifecycle.select_reward(state["reward_options"][0]["id"], errors),
+		"; ".join(errors),
+	)
+
+
+func _resolve_all_rewards(
+	lifecycle: Variant,
+	state: Dictionary,
+	harness: TestHarness,
+	errors: Array[String],
+) -> void:
+	var guard := 0
+	while state["status"] == "reward" and guard < 3:
+		guard += 1
+		var option: Dictionary = state["reward_options"][0]
+		if option["type"] == "hero":
+			harness.assert_true(lifecycle.recruit_hero(option["payload_id"], errors), "; ".join(errors))
+		else:
+			harness.assert_true(lifecycle.select_reward(option["id"], errors), "; ".join(errors))
+	harness.assert_true(guard < 3, "reward chain must finish after battle loot and optional recruitment")
 
 
 func _first_available(state: Dictionary) -> Dictionary:

@@ -1,5 +1,9 @@
 # M5-90 独立最终 Review
 
+建议：`gpt-5.6-sol` / `high`
+
+Allowlist：只读检查工程实现、测试与交接材料；唯一允许写入范围为 `docs/agent_tasks/m5/reviews/`。
+
 ## 目标
 
 由未参与 M5 实现的 Reviewer 对肉鸽层进行独立代码可行性检查，并输出单一 PASS／FAIL 结论。

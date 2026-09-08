@@ -6,8 +6,17 @@ const RngScript = preload("res://core/rng.gd")
 const ContentCatalogScript = preload("res://data/catalogs/content_catalog.gd")
 const BattleRuntimeScript = preload("res://systems/combat/battle_runtime.gd")
 const CombatPortsScript = preload("res://systems/combat/combat_ports.gd")
+const RoguelikeRelicActionAdapterScript = preload("res://app/roguelike_relic_action_adapter.gd")
+const RunBattleProgressScript = preload("res://systems/roguelike/run_battle_progress.gd")
+const MarshalGrowthScript = preload("res://systems/growth/marshal_growth.gd")
 
-const CONFIG_KEYS := ["battle_seed", "deployed_hero_ids", "free_skill_ids", "stage_id"]
+const DIRECT_CONFIG_KEYS := ["battle_seed", "deployed_hero_ids", "free_skill_ids", "stage_id"]
+const RUN_CONFIG_KEYS := DIRECT_CONFIG_KEYS + ["relic_ids", "encounter", "run_progress"]
+const SHENTONG_EVOLUTION_RELIC_IDS := ["shentongAssaultBurst", "shentongChargeOverload"]
+const RUN_ALLY_CLASS_BY_SLOT := {
+	1: "shield", 2: "shield", 3: "shield",
+	4: "assassin", 5: "crossbow", 6: "banner",
+}
 
 
 static func create(config: Variant, stream: Variant, errors: Array[String]) -> Dictionary:
@@ -22,9 +31,20 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 	if not catalogs["stages"].has(config["stage_id"]):
 		errors.append("unknown battle stage: %s" % config["stage_id"])
 		return {}
+	var run_mode: bool = config.has("run_progress")
+	var relic_ids: Array = []
+	var battle_draft := {"permanent_buffs": []}
+	if run_mode:
+		if not _validate_run_config(config, catalogs, errors):
+			return {}
+		relic_ids = config["relic_ids"].duplicate()
+		battle_draft = config["run_progress"].runtime_draft_authority(errors)
+		if not errors.is_empty():
+			return {}
 	var state := _build_state(config, catalogs, errors)
 	if not errors.is_empty():
 		return {}
+	var relic_action_adapter := RoguelikeRelicActionAdapterScript.new(state)
 	var streams := RngScript.create_named_streams(
 		config["battle_seed"], ["combat", "enemyPolicy"]
 	)
@@ -34,7 +54,7 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 	var runtime_errors: Array[String] = []
 	var runtime := BattleRuntimeScript.new({
 		"state": state,
-		"run_state": {"permanent_buffs": []},
+		"run_state": battle_draft,
 		"catalogs": catalogs,
 		"tuning": catalogs["tuning"],
 		"combat_rng": streams["combat"],
@@ -50,8 +70,8 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 			"resolve_battle_end": func(_request: Dictionary) -> Dictionary:
 				return CombatPortsScript.ok(true),
 		},
-		"relic_actions": {},
-		"get_owned_relic_ids": func() -> Array: return [],
+		"relic_actions": relic_action_adapter.action_map(),
+		"get_owned_relic_ids": func() -> Array: return relic_ids.duplicate(),
 		"format_damage": func(value: float) -> float:
 			return maxf(0.0, roundf(value * 10.0) / 10.0),
 		"get_block_rate": func(unit: Dictionary, _context: Dictionary, _metadata: Dictionary) -> float:
@@ -71,6 +91,12 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 			% (runtime_errors[0] if not runtime_errors.is_empty() else "invalid runtime")
 		)
 		return {}
+	if not relic_action_adapter.bind_runtime(runtime, errors):
+		return {}
+	if run_mode and not _apply_run_projection(
+		state, runtime, config["run_progress"], battle_draft, catalogs, errors,
+	):
+		return {}
 	return {
 		"runtime": runtime,
 		"state": state,
@@ -78,6 +104,9 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		"deployed_hero_ids": config["deployed_hero_ids"].duplicate(),
 		"free_skill_ids": config["free_skill_ids"].duplicate(),
 		"battle_seed": config["battle_seed"],
+		"run_progress": config.get("run_progress"),
+		"relic_ids": relic_ids.duplicate(),
+		"relic_action_adapter": relic_action_adapter,
 	}
 
 
@@ -124,8 +153,8 @@ static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array
 		"base_sp_max": 10.0,
 		"enemy_sp": 6.0,
 		"enemy_sp_max": 6.0,
-		"allies": _team("ally", catalogs),
-		"enemies": _team("enemy", catalogs),
+		"allies": _run_allies(catalogs) if config.has("run_progress") else _team("ally", catalogs),
+		"enemies": _encounter_team(config["encounter"], catalogs) if config.has("encounter") else _team("enemy", catalogs),
 		"player_heroes": player_heroes,
 		"enemy_heroes": enemy_heroes,
 		"side_buffs": {"ally": [], "enemy": []},
@@ -190,19 +219,102 @@ static func _team(side: String, catalogs: Dictionary) -> Array[Dictionary]:
 	return units
 
 
+static func _run_allies(catalogs: Dictionary) -> Array[Dictionary]:
+	var units := _team("ally", catalogs)
+	var base_block := _tuning(catalogs, "allyBaseBlock")
+	var base_crit := _tuning(catalogs, "allyBaseCrit")
+	for unit: Dictionary in units:
+		var class_id: String = RUN_ALLY_CLASS_BY_SLOT[unit["slot"]]
+		var definition: Variant = catalogs["piece_classes"][class_id]
+		unit["class_id"] = definition.id
+		unit["class_name"] = definition.name
+		unit["hp"] = float(definition.hp)
+		unit["max_hp"] = float(definition.hp)
+		unit["atk"] = float(definition.attack)
+		unit["base_block_rate"] = base_block + float(definition.block_bonus)
+		unit["crit_rate"] = base_crit + float(definition.crit_bonus)
+	return units
+
+
+static func _encounter_team(encounter: Dictionary, catalogs: Dictionary) -> Array[Dictionary]:
+	var units := _team("enemy", catalogs)
+	for slot: Dictionary in encounter["slots"]:
+		var unit: Dictionary = units[slot["unit_id"] - 1]
+		var class_id: String = "default" if slot["piece_class_id"] == null else slot["piece_class_id"]
+		var class_definition: Variant = catalogs["piece_classes"][class_id]
+		unit["class_id"] = class_id
+		unit["class_name"] = slot["class_name"]
+		unit["base_block_rate"] += float(class_definition.block_bonus)
+		unit["crit_rate"] += float(class_definition.crit_bonus)
+		unit["special_id"] = slot["special_id"]
+		if slot["empty"]:
+			unit["hp"] = 0.0
+			unit["max_hp"] = 0.0
+			unit["atk"] = 0.0
+			unit["alive"] = false
+			continue
+		unit["max_hp"] = _format_damage(_tuning(catalogs, "enemyBaseHp") * float(slot["total_hp_scale"]))
+		unit["hp"] = unit["max_hp"]
+		unit["atk"] = _format_damage(_tuning(catalogs, "enemyBaseAtk") * float(slot["total_atk_scale"]))
+	return units
+
+
+static func _apply_run_projection(
+	state: Dictionary,
+	runtime: Variant,
+	progress: Variant,
+	battle_draft: Dictionary,
+	catalogs: Dictionary,
+	errors: Array[String],
+) -> bool:
+	var relic_system: Variant = runtime.component("relic_system", errors)
+	if not errors.is_empty():
+		return false
+	state["sp_max"] = maxf(0.0, float(state["base_sp_max"]) + relic_system.get_skill_point_max_adjustment())
+	state["sp"] = state["sp_max"]
+	for unit: Dictionary in state["allies"]:
+		var stacks := 0
+		for entry: Dictionary in battle_draft["permanent_buffs"]:
+			if entry["id"] == "marshalPromotion" and entry["target"] == {"type": "pieceSlot", "id": unit["slot"]}:
+				stacks = entry["stacks"]
+		var bonuses := MarshalGrowthScript.promotion_bonuses(
+			stacks, _marshal_tuning(catalogs), errors,
+		)
+		if not errors.is_empty():
+			return false
+		unit["atk"] += bonuses["atk"]
+		unit["max_hp"] += bonuses["max_hp"]
+		unit["base_block_rate"] = minf(0.95, unit["base_block_rate"] + bonuses["block"])
+		unit["crit_rate"] = minf(0.95, unit["crit_rate"] + bonuses["crit"])
+		unit["max_hp"] += relic_system.get_class_max_hp_adjustment(unit["class_id"], "ally")
+		if unit["max_hp"] <= 0.0:
+			errors.append("Run relic and permanent growth projection produced non-positive ally max HP")
+			return false
+		unit["hp"] = unit["max_hp"]
+	var projected: Array = progress.project_allies(state["allies"], errors)
+	if not errors.is_empty():
+		return false
+	state["allies"] = projected
+	return BattleStateScript.validate(state, errors)
+
+
 static func _tuning(catalogs: Dictionary, id: String) -> float:
 	return float(catalogs["tuning"][id].value)
 
 
 static func _validate_config(config: Variant, errors: Array[String]) -> bool:
-	if typeof(config) != TYPE_DICTIONARY or config.size() != CONFIG_KEYS.size():
+	if typeof(config) != TYPE_DICTIONARY:
 		errors.append("battle bootstrap config must have a canonical closed shape")
 		return false
-	for key: String in CONFIG_KEYS:
+	var expected: Array = RUN_CONFIG_KEYS if config.has("run_progress") else DIRECT_CONFIG_KEYS
+	if config.size() != expected.size():
+		errors.append("battle bootstrap config must have a canonical closed shape")
+		return false
+	for key: String in expected:
 		if not config.has(key):
 			errors.append("battle bootstrap config.%s is required" % key)
 	for key: Variant in config:
-		if typeof(key) != TYPE_STRING or key not in CONFIG_KEYS:
+		if typeof(key) != TYPE_STRING or key not in expected:
 			errors.append("battle bootstrap config contains an unknown field")
 	if not errors.is_empty():
 		return false
@@ -223,3 +335,67 @@ static func _validate_config(config: Variant, errors: Array[String]) -> bool:
 			errors.append("free_skill_ids must contain non-empty strings")
 			break
 	return errors.is_empty()
+
+
+static func _validate_run_config(
+	config: Dictionary,
+	catalogs: Dictionary,
+	errors: Array[String],
+) -> bool:
+	if (
+		typeof(config["relic_ids"]) != TYPE_ARRAY
+		or typeof(config["encounter"]) != TYPE_DICTIONARY
+		or config["run_progress"] == null
+		or config["run_progress"].get_script() != RunBattleProgressScript
+		or config["run_progress"].status() != "open"
+	):
+		errors.append("Run battle bootstrap requires relics, encounter, and one open progress session")
+		return false
+	var seen := {}
+	for relic_id: Variant in config["relic_ids"]:
+		if (
+			typeof(relic_id) != TYPE_STRING
+			or not catalogs["relics"].has(relic_id)
+			or seen.has(relic_id)
+			or relic_id in SHENTONG_EVOLUTION_RELIC_IDS
+			or catalogs["relics"][relic_id].category == "shentongEvolve"
+		):
+			errors.append("Run battle relic ids must be unique known non-shentong relics")
+			return false
+		seen[relic_id] = true
+	var encounter: Dictionary = config["encounter"]
+	if encounter.size() != 5:
+		errors.append("Run battle encounter must keep the authoritative M5 shape")
+		return false
+	for field in ["id", "name", "hp_scale", "atk_scale", "slots"]:
+		if not encounter.has(field):
+			errors.append("Run battle encounter must keep the authoritative M5 shape")
+			return false
+	if (
+		typeof(encounter["slots"]) != TYPE_ARRAY
+		or encounter["slots"].size() != 6
+	):
+		errors.append("Run battle encounter must keep the authoritative M5 shape")
+		return false
+	for slot: Dictionary in encounter["slots"]:
+		var class_id: Variant = slot.get("piece_class_id")
+		if class_id != null and not catalogs["piece_classes"].has(class_id):
+			errors.append("Run battle encounter references an unknown piece class")
+			return false
+	return true
+
+
+static func _format_damage(value: float) -> float:
+	return maxf(0.0, roundf(value * 10.0) / 10.0)
+
+
+static func _marshal_tuning(catalogs: Dictionary) -> Dictionary:
+	var result := {}
+	for id in [
+		"ascendAtkBonus", "ascendHpBonus", "ascendBlockBonus",
+		"ascendRepeatAtkBonus", "ascendRepeatBlockBonus", "ascendRepeatCritBonus",
+		"ascendRepeatMissingHpHealRatio",
+	]:
+		if catalogs["tuning"].has(id):
+			result[id] = catalogs["tuning"][id].value
+	return result

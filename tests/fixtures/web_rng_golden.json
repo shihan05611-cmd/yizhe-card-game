@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "provenance": {
-    "authoritative_module": "新弈者/Html/scripts/core/random.js",
-    "source_sha256": "cce70afb44d2f5de53f46c9fbe4d7c005164cfe1d5e050aba27d31a1525c58b6",
-    "generated_utc": "2026-09-01T11:46:37.977Z",
+    "authoritative_module": "弈者-独立版/Html/scripts/core/random.js",
+    "source_sha256": "ed3edafa9b1694bbd9fb92ba8ca1ad00843a7a27f2c5021ef33a233be43feba2",
+    "generated_utc": "2026-09-07T15:15:39.411Z",
     "algorithm": "Web random.js createSeededRandom outputs converted to exact uint32 numerators"
   },
   "master_seed": "弈者🎴-M0-B",

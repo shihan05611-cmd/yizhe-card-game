@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const fixtureDirectory = dirname(fileURLToPath(import.meta.url));
@@ -10,9 +10,29 @@ const masterSeed = "弈者🎴-M0-B";
 const defaultStreamNames = ["combat", "allyPolicy", "enemyPolicy", "run"];
 
 async function findWebRandomSource() {
+  const configuredRoot = process.env.YIZHE_WEB_ROOT;
+  if (configuredRoot) {
+    const configuredSource = join(resolve(configuredRoot), "scripts", "core", "random.js");
+    await access(configuredSource);
+    return configuredSource;
+  }
+
+  const localSource = join(
+    "C:\\Users\\78566\\Documents\\ChatGPT\\弈者-独立版\\Html",
+    "scripts",
+    "core",
+    "random.js",
+  );
+  try {
+    await access(localSource);
+    return localSource;
+  } catch {
+    // Continue with a portable ancestor search for checkouts that use the same folder name.
+  }
+
   let cursor = fixtureDirectory;
   for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = join(cursor, "新弈者", "Html", "scripts", "core", "random.js");
+    const candidate = join(cursor, "弈者-独立版", "Html", "scripts", "core", "random.js");
     try {
       await access(candidate);
       return candidate;
@@ -20,7 +40,9 @@ async function findWebRandomSource() {
       cursor = resolve(cursor, "..");
     }
   }
-  throw new Error("Unable to locate 新弈者/Html/scripts/core/random.js from fixture directory");
+  throw new Error(
+    "Unable to locate 弈者-独立版/Html/scripts/core/random.js; set YIZHE_WEB_ROOT to the Html directory",
+  );
 }
 
 function collectUint32Numerators(randomSource, length) {
@@ -42,7 +64,7 @@ const namedSequences = Object.fromEntries(
 const fixture = {
   schema_version: 1,
   provenance: {
-    authoritative_module: relative(resolve(fixtureDirectory, "../../../../.."), sourcePath).replaceAll("\\", "/"),
+    authoritative_module: "弈者-独立版/Html/scripts/core/random.js",
     source_sha256: sourceSha256,
     generated_utc: new Date().toISOString(),
     algorithm: "Web random.js createSeededRandom outputs converted to exact uint32 numerators",

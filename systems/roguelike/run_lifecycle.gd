@@ -1,31 +1,51 @@
 class_name RoguelikeRunLifecycle
 extends RefCounted
 
-## Pure M5-03 Run lifecycle. Economy option construction, reward value,
-## battle-world startup/settlement, UI and persistence are intentionally absent.
+## Pure M5 Run lifecycle through M5-04. Battle-world startup/settlement, UI and
+## persistence remain intentionally absent; battle victory enters the reward
+## phase through the pure piece-slot projection owned here.
 
 const RunContractScript = preload("res://systems/roguelike/run_contract.gd")
 const MapSystemScript = preload("res://systems/roguelike/map_system.gd")
+const RunBattleProgressScript = preload("res://systems/roguelike/run_battle_progress.gd")
 
 const INITIAL_HERO_CHOICE_COUNT := 4
 const INITIAL_FREE_SKILL_COUNT := 2
 const RECRUITMENT_OPTION_COUNT := 4
+const SHOP_SKILL_OPTION_COUNT := 3
+const SHOP_RELIC_OPTION_COUNT := 3
+const FORGE_RELIC_OPTION_COUNT := 3
+const REWARD_HEAL_RATIO := 0.35
 const PERMANENT_GROWTH_EXCLUSIVE_IDS := ["ascend", "burnEnchant", "fist"]
 const BATTLE_NODE_TYPES := ["battle", "elite", "boss"]
 const NON_BATTLE_STATUS_BY_TYPE := {"forge": "forge", "shop": "shop", "event": "event"}
+const SHENTONG_EVOLUTION_RELIC_IDS := [
+	"shentongAssaultBurst", "shentongChargeOverload",
+]
 const NODE_KEYS := [
 	"id", "chapter", "row", "column", "type", "available", "completed", "next_node_ids",
 ]
-const RECRUITMENT_OPTION_KEYS := ["id", "payload_id", "type"]
+const OPTION_KEYS := [
+	"id", "payload_id", "name", "description", "type", "price", "purchased",
+]
+const REWARD_OPTION_TYPES := ["freeSkill", "relic", "heal", "hero"]
+const SHOP_OPTION_TYPES := ["shopFreeSkill", "shopRelic"]
+const FORGE_OPTION_TYPES := ["forgeRelic"]
+const STAGE_ID_BY_CHAPTER := {1: "counter", 2: "burn", 3: "core"}
 
 var _state: Dictionary
 var _catalogs: Dictionary
 var _players: Dictionary
 var _skills: Dictionary
+var _relics: Dictionary
 var _roguelike_catalog: Dictionary
 var _random: Variant
 var _valid := false
 var _dependency_error := ""
+var _reward_option_authority := {}
+var _shop_option_authority := {}
+var _battle_launch_authority := {}
+var _battle_progress_session: Variant = null
 
 
 func _init(
@@ -58,6 +78,9 @@ func _init(
 			_catalogs = content_catalog
 			_random = run_random
 			_valid = true
+			if not _validate_state(_state, state_errors):
+				_valid = false
+				_dependency_error = state_errors[0]
 	if not _dependency_error.is_empty():
 		errors.clear()
 		errors.append(_dependency_error)
@@ -85,6 +108,10 @@ func start_run(errors: Array[String] = []) -> bool:
 		if choices.size() != INITIAL_HERO_CHOICE_COUNT:
 			return false
 		_replace(candidate, RunContractScript.create())
+		_reward_option_authority.clear()
+		_shop_option_authority.clear()
+		_battle_launch_authority.clear()
+		_battle_progress_session = null
 		candidate["active"] = true
 		candidate["chapter"] = 1
 		candidate["currency"] = 30
@@ -133,6 +160,10 @@ func quit_run(errors: Array[String] = []) -> bool:
 		if not candidate["active"]:
 			return false
 		_replace(candidate, RunContractScript.create())
+		_reward_option_authority.clear()
+		_shop_option_authority.clear()
+		_battle_launch_authority.clear()
+		_battle_progress_session = null
 		return true
 	, errors)
 
@@ -182,6 +213,35 @@ func add_free_skill_copy(skill_id: Variant, errors: Array[String] = []) -> bool:
 	, errors)
 
 
+func get_reward_options(errors: Array[String] = []) -> Array:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors):
+		return []
+	return _deep_copy(_state["reward_options"])
+
+
+func get_shop_options(errors: Array[String] = []) -> Array:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors):
+		return []
+	return _deep_copy(_state["shop_options"])
+
+
+func get_option_cost(option_id: Variant, errors: Array[String] = []) -> Variant:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors):
+		return null
+	if typeof(option_id) != TYPE_STRING or _state["status"] not in ["shop", "forge"]:
+		return null
+	var option: Dictionary = _option_by_id(_state["shop_options"], option_id)
+	var expected_types: Array = FORGE_OPTION_TYPES if _state["status"] == "forge" else SHOP_OPTION_TYPES
+	if option.is_empty() or not _validate_option(
+		option, expected_types, _shop_option_authority, true, _state,
+	):
+		return null
+	return _currency_cost(option["price"], _state)
+
+
 func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
 		if not candidate["active"] or candidate["status"] != "map" or typeof(node_id) != TYPE_STRING:
@@ -190,22 +250,64 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 		if node.is_empty() or not node["available"] or node["completed"]:
 			return false
 		var scales := MapSystemScript.get_node_scales(node, local_errors)
+		var prepared_launch := {}
+		if node["type"] in BATTLE_NODE_TYPES:
+			var encounter := MapSystemScript.resolve_encounter(
+				_roguelike_catalog, node, _random, local_errors,
+			)
+			var battle_seed: Variant = _random.int_range(0, 0xffffffff, local_errors)
+			if not local_errors.is_empty() or encounter.is_empty() or battle_seed == null:
+				return false
+			scales = {"hp": encounter["hp_scale"], "atk": encounter["atk_scale"]}
+			prepared_launch = {
+				"node_id": node["id"],
+				"battle_seed": battle_seed,
+				"stage_id": STAGE_ID_BY_CHAPTER[node["chapter"]],
+				"encounter": encounter,
+			}
 		if not local_errors.is_empty() or scales.is_empty():
+			return false
+		var prepared_options: Array = []
+		if node["type"] == "shop":
+			prepared_options.append_array(_draw_skill_options(
+				SHOP_SKILL_OPTION_COUNT, "shop", "shopFreeSkill", _skill_price(node["chapter"]),
+				local_errors,
+			))
+			if not local_errors.is_empty():
+				return false
+			prepared_options.append_array(_draw_relic_options(
+				SHOP_RELIC_OPTION_COUNT, "shop", "shopRelic", _relic_price(node["chapter"]),
+				local_errors,
+			))
+		elif node["type"] == "forge":
+			prepared_options = _draw_class_relic_options(
+				FORGE_RELIC_OPTION_COUNT, _class_relic_price(node["chapter"]), local_errors,
+			)
+		if not local_errors.is_empty():
+			return false
+		if node["type"] == "event" and not _add_currency(
+			candidate, 10 + node["chapter"] * 2, local_errors,
+		):
+			return false
+		var prepared_authority := _publish_option_authority(prepared_options, local_errors)
+		if not local_errors.is_empty():
 			return false
 		for other_node: Dictionary in candidate["map_nodes"]:
 			other_node["available"] = false
 		candidate["current_node_id"] = node_id
 		candidate["reward_pending"] = false
 		candidate["reward_options"] = []
-		candidate["shop_options"] = []
+		candidate["shop_options"] = prepared_options
 		candidate["forge_uses_this_node"] = 0
+		_reward_option_authority.clear()
+		_shop_option_authority = prepared_authority
+		_battle_launch_authority = prepared_launch
+		_battle_progress_session = null
 		if node["type"] in BATTLE_NODE_TYPES:
 			candidate["status"] = "fighting"
 			candidate["enemy_hp_scale"] = scales["hp"]
 			candidate["enemy_atk_scale"] = scales["atk"]
 		elif NON_BATTLE_STATUS_BY_TYPE.has(node["type"]):
-			# M5-03 owns only entry/completion state. M5-04 will populate and
-			# transact forge/shop/event economy details.
 			candidate["status"] = NON_BATTLE_STATUS_BY_TYPE[node["type"]]
 			candidate["enemy_hp_scale"] = 1.0
 			candidate["enemy_atk_scale"] = 1.0
@@ -228,6 +330,88 @@ func complete_current_node(errors: Array[String] = []) -> bool:
 
 
 func complete_current_battle(won: Variant, errors: Array[String] = []) -> bool:
+	if _battle_progress_session != null:
+		errors.clear()
+		errors.append("an opened Run battle must settle through its progress session")
+		return false
+	return _complete_battle(won, {}, errors)
+
+
+func begin_current_battle(errors: Array[String] = []) -> Dictionary:
+	errors.clear()
+	if (
+		not _require_valid(errors)
+		or not _validate_state(_state, errors)
+		or _state["status"] != "fighting"
+		or _battle_launch_authority.is_empty()
+		or _battle_progress_session != null
+	):
+		return {}
+	var progress := RunBattleProgressScript.new({
+		"run_state": _state,
+		"buff_catalog": _catalogs["buffs"],
+		"valid_hero_ids": _players.keys(),
+	}, errors)
+	if not errors.is_empty() or not progress.is_valid():
+		return {}
+	_battle_progress_session = progress
+	return {
+		"battle_seed": _battle_launch_authority["battle_seed"],
+		"deployed_hero_ids": _sorted_deployment_ids(_state["hero_deployment_slots"]),
+		"free_skill_ids": _state["free_skill_ids"].duplicate(),
+		"stage_id": _battle_launch_authority["stage_id"],
+		"relic_ids": _battle_relic_ids(),
+		"encounter": _deep_copy(_battle_launch_authority["encounter"]),
+		"run_progress": progress,
+	}
+
+
+func cancel_current_battle_launch(progress: Variant, errors: Array[String] = []) -> bool:
+	errors.clear()
+	if progress == null or progress != _battle_progress_session or progress.status() != "open":
+		return false
+	if not progress.close("discarded", errors):
+		return false
+	_battle_progress_session = null
+	return true
+
+
+func settle_current_battle(
+	progress: Variant,
+	battle_result: Variant,
+	allies: Variant,
+	errors: Array[String] = [],
+) -> bool:
+	errors.clear()
+	if (
+		progress == null
+		or progress != _battle_progress_session
+		or progress.get_script() != RunBattleProgressScript
+		or not progress.is_bound_to(_state)
+		or battle_result not in ["win", "lose"]
+	):
+		return false
+	var progress_snapshot := {}
+	if battle_result == "win":
+		progress_snapshot = progress.settlement_snapshot(allies, errors)
+		if not errors.is_empty() or progress_snapshot.is_empty():
+			return false
+	var settled := _complete_battle(battle_result == "win", progress_snapshot, errors)
+	if not settled:
+		return false
+	var close_errors: Array[String] = []
+	var closed: bool = progress.close(
+		"committed" if battle_result == "win" else "discarded", close_errors,
+	)
+	assert(closed and close_errors.is_empty())
+	return true
+
+
+func _complete_battle(
+	won: Variant,
+	progress_snapshot: Dictionary,
+	errors: Array[String],
+) -> bool:
 	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
 		if not candidate["active"] or candidate["status"] != "fighting" or typeof(won) != TYPE_BOOL:
 			return false
@@ -238,10 +422,40 @@ func complete_current_battle(won: Variant, errors: Array[String] = []) -> bool:
 			candidate["status"] = "failed"
 			candidate["reward_pending"] = false
 			candidate["reward_options"] = []
+			_reward_option_authority.clear()
+			_battle_launch_authority.clear()
+			_battle_progress_session = null
 			return true
-		# This records only the lifecycle outcome. M5-05 will call it after a
-		# real battle transaction; battle rewards belong to M5-04/M5-05.
-		return _finish_successful_node(candidate, node, local_errors)
+		if not progress_snapshot.is_empty():
+			if (
+				progress_snapshot.keys() != ["piece_slots", "permanent_buffs"]
+				or typeof(progress_snapshot["piece_slots"]) != TYPE_ARRAY
+				or typeof(progress_snapshot["permanent_buffs"]) != TYPE_ARRAY
+			):
+				return false
+			candidate["piece_slots"] = _deep_copy(progress_snapshot["piece_slots"])
+			candidate["permanent_buffs"] = _deep_copy(progress_snapshot["permanent_buffs"])
+		var reward := _reward_scale(node, local_errors)
+		if reward.is_empty() or not _can_add_currency(candidate, reward["currency"], local_errors):
+			return false
+		var options := _build_battle_rewards(candidate, node, reward, local_errors)
+		if not local_errors.is_empty():
+			return false
+		var authority := _publish_option_authority(options, local_errors)
+		if not local_errors.is_empty() or not _add_currency(
+			candidate, reward["currency"], local_errors,
+		):
+			return false
+		candidate["reward_pending"] = true
+		candidate["reward_options"] = options
+		candidate["shop_options"] = []
+		candidate["status"] = "reward"
+		candidate["forge_uses_this_node"] = 0
+		_reward_option_authority = authority
+		_shop_option_authority.clear()
+		_battle_launch_authority.clear()
+		_battle_progress_session = null
+		return true
 	, errors)
 
 
@@ -255,31 +469,383 @@ func recruit_hero(hero_id: Variant, errors: Array[String] = []) -> bool:
 			or candidate["hero_deployment_slots"].has(str(hero_id))
 		):
 			return false
-		var option_found := false
-		for option: Dictionary in candidate["reward_options"]:
-			if option["type"] == "hero" and option["payload_id"] == hero_id:
-				option_found = true
-				break
-		if not option_found:
-			return false
-		var occupied: Array = candidate["hero_deployment_slots"].values()
-		var slot := 0
-		for preferred_slot in [4, 5, 6, 1, 2, 3]:
-			if preferred_slot not in occupied:
-				slot = preferred_slot
-				break
-		if slot == 0:
+		var option: Dictionary = _option_by_id(
+			candidate["reward_options"], "reward:hero:%d" % hero_id,
+		)
+		if option.is_empty() or not _validate_option(
+			option, ["hero"], _reward_option_authority, true, candidate,
+		):
 			return false
 		var node := _current_node(candidate)
 		if node.is_empty():
 			local_errors.append("recruitment requires the authoritative current node")
 			return false
-		candidate["hero_deployment_slots"][str(hero_id)] = slot
-		_sync_roster_views(candidate)
+		if not _apply_hero_option(candidate, option, local_errors):
+			return false
 		candidate["reward_pending"] = false
 		candidate["reward_options"] = []
+		_reward_option_authority.clear()
 		return _advance_after_node(candidate, node, local_errors)
 	, errors)
+
+
+func select_reward(option_id: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != "reward"
+			or not candidate["reward_pending"]
+			or typeof(option_id) != TYPE_STRING
+		):
+			return false
+		var node := _current_node(candidate)
+		var option: Dictionary = _option_by_id(candidate["reward_options"], option_id)
+		if (
+			node.is_empty()
+			or option.is_empty()
+			or not _validate_option(
+				option, REWARD_OPTION_TYPES, _reward_option_authority, true, candidate,
+			)
+		):
+			return false
+		if not _apply_reward_option(candidate, option, local_errors):
+			return false
+		candidate["reward_pending"] = false
+		candidate["reward_options"] = []
+		_reward_option_authority.clear()
+		if option["type"] == "hero":
+			return _advance_after_node(candidate, node, local_errors)
+		return _finish_successful_node(candidate, node, local_errors)
+	, errors)
+
+
+func buy_shop_option(option_id: Variant, errors: Array[String] = []) -> bool:
+	return _buy_option(option_id, "shop", SHOP_OPTION_TYPES, errors)
+
+
+func buy_forge_option(option_id: Variant, errors: Array[String] = []) -> bool:
+	return _buy_option(option_id, "forge", FORGE_OPTION_TYPES, errors)
+
+
+func sell_free_skill(skill_id: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != "shop"
+			or "tradePermit" not in candidate["relic_ids"]
+			or typeof(skill_id) != TYPE_STRING
+			or skill_id not in candidate["free_skill_ids"]
+			or skill_id == "basicDamage"
+			or not _skills.has(skill_id)
+		):
+			return false
+		var index: int = candidate["free_skill_ids"].find(skill_id)
+		if index < 0 or not _add_currency(
+			candidate, _skill_price(candidate["chapter"]), local_errors,
+		):
+			return false
+		# The Godot Run owns card copies as a multiset. A sale consumes exactly
+		# one copy, even when the same skill id appears several times.
+		candidate["free_skill_ids"].remove_at(index)
+		return true
+	, errors)
+
+
+func get_forge_heal_cost(errors: Array[String] = []) -> Variant:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors):
+		return null
+	return _forge_heal_cost(_state)
+
+
+func use_forge_heal(errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, _local_errors: Array[String]) -> bool:
+		var cost: Variant = _forge_heal_cost(candidate)
+		if cost == null or candidate["currency"] < cost:
+			return false
+		candidate["currency"] -= cost
+		for entry: Dictionary in candidate["piece_slots"]:
+			entry["hp_ratio"] = 1.0
+		candidate["forge_uses_this_node"] += 1
+		return true
+	, errors)
+
+
+func _buy_option(
+	option_id: Variant,
+	status: String,
+	allowed_types: Array,
+	errors: Array[String],
+) -> bool:
+	return _atomic(func(candidate: Dictionary, _local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != status
+			or typeof(option_id) != TYPE_STRING
+		):
+			return false
+		var option: Dictionary = _option_by_id(candidate["shop_options"], option_id)
+		if option.is_empty() or not _validate_option(
+			option, allowed_types, _shop_option_authority, true, candidate,
+		):
+			return false
+		var cost := _currency_cost(option["price"], candidate)
+		if candidate["currency"] < cost:
+			return false
+		candidate["currency"] -= cost
+		if option["type"] == "shopFreeSkill":
+			candidate["free_skill_ids"].append(option["payload_id"])
+		else:
+			candidate["relic_ids"].append(option["payload_id"])
+		option["purchased"] = true
+		_shop_option_authority[option["id"]] = _deep_copy(option)
+		return true
+	, errors)
+
+
+func _draw_skill_options(
+	count: int,
+	prefix: String,
+	type_id: String,
+	price: int,
+	errors: Array[String],
+) -> Array:
+	var pool: Array = []
+	for skill_id: Variant in _roguelike_catalog["free_skills"]:
+		if skill_id != "basicDamage":
+			pool.append(_roguelike_catalog["free_skills"][skill_id])
+	var shuffled: Array = _random.shuffle(pool, errors)
+	if not errors.is_empty():
+		return []
+	var options: Array = []
+	for skill: Dictionary in shuffled.slice(0, mini(count, shuffled.size())):
+		options.append({
+			"id": "%s:skill:%s" % [prefix, skill["id"]],
+			"payload_id": skill["id"],
+			"name": skill["name"],
+			"description": skill["tip"],
+			"type": type_id,
+			"price": price,
+			"purchased": false,
+		})
+	return options
+
+
+func _draw_relic_options(
+	count: int,
+	prefix: String,
+	type_id: String,
+	price: int,
+	errors: Array[String],
+) -> Array:
+	var pool: Array = []
+	for relic_id: Variant in _relics:
+		var relic: Variant = _relics[relic_id]
+		if (
+			relic_id not in _state["relic_ids"]
+			and relic_id not in SHENTONG_EVOLUTION_RELIC_IDS
+			and relic.category != "classUpgrade"
+			and relic.category != "shentongEvolve"
+		):
+			pool.append(relic)
+	var shuffled: Array = _random.shuffle(pool, errors)
+	if not errors.is_empty():
+		return []
+	var options: Array = []
+	for relic: Variant in shuffled.slice(0, mini(count, shuffled.size())):
+		options.append(_option_from_relic(relic, prefix, type_id, price))
+	return options
+
+
+func _draw_class_relic_options(
+	count: int,
+	price: int,
+	errors: Array[String],
+) -> Array:
+	var pool: Array = []
+	for relic_id: Variant in _relics:
+		var relic: Variant = _relics[relic_id]
+		if relic.category == "classUpgrade" and relic_id not in _state["relic_ids"]:
+			pool.append(relic)
+	var shuffled: Array = _random.shuffle(pool, errors)
+	if not errors.is_empty():
+		return []
+	var options: Array = []
+	for relic: Variant in shuffled.slice(0, mini(count, shuffled.size())):
+		options.append(_option_from_relic(relic, "forge", "forgeRelic", price))
+	return options
+
+
+func _option_from_relic(
+	relic: Variant,
+	prefix: String,
+	type_id: String,
+	price: int,
+) -> Dictionary:
+	return {
+		"id": "%s:relic:%s" % [prefix, relic.id],
+		"payload_id": relic.id,
+		"name": relic.name,
+		"description": relic.description,
+		"type": type_id,
+		"price": price,
+		"purchased": false,
+	}
+
+
+func _build_battle_rewards(
+	_candidate: Dictionary,
+	_node: Dictionary,
+	reward: Dictionary,
+	errors: Array[String],
+) -> Array:
+	var options := _draw_skill_options(
+		reward["freeSkillCount"], "reward", "freeSkill", 0, errors,
+	)
+	if not errors.is_empty():
+		return []
+	options.append_array(_draw_relic_options(
+		reward["relicCount"], "reward", "relic", 0, errors,
+	))
+	if not errors.is_empty():
+		return []
+	if not options.is_empty():
+		return options
+	return [{
+		"id": "reward:heal",
+		"payload_id": null,
+		"name": "战后修整",
+		"description": "全体存活棋子回复 35% 最大生命。",
+		"type": "heal",
+		"price": 0,
+		"purchased": false,
+	}]
+
+
+func _reward_scale(node: Dictionary, errors: Array[String]) -> Dictionary:
+	var definition: Variant = _roguelike_catalog["chapters"].get(node["chapter"])
+	if not definition is Resource or typeof(definition.get("metadata")) != TYPE_DICTIONARY:
+		errors.append("battle reward requires an authoritative chapter definition")
+		return {}
+	var field := "battleReward"
+	if node["type"] == "elite":
+		field = "eliteReward"
+	elif node["type"] == "boss":
+		field = "bossReward"
+	var reward: Variant = definition.metadata.get(field)
+	if typeof(reward) != TYPE_DICTIONARY:
+		errors.append("chapter %d is missing %s" % [node["chapter"], field])
+		return {}
+	for key in ["freeSkillCount", "relicCount", "currency"]:
+		if typeof(reward.get(key)) != TYPE_INT or reward[key] < 0:
+			errors.append("chapter %d %s.%s must be a non-negative integer" % [
+				node["chapter"], field, key,
+			])
+			return {}
+	return reward.duplicate(true)
+
+
+func _publish_option_authority(options: Array, errors: Array[String]) -> Dictionary:
+	var authority := {}
+	for raw_option: Variant in options:
+		if typeof(raw_option) != TYPE_DICTIONARY:
+			errors.append("authoritative Run options must be Dictionaries")
+			return {}
+		var option: Dictionary = raw_option
+		if typeof(option.get("id")) != TYPE_STRING or option["id"].is_empty():
+			errors.append("authoritative Run option id must be a non-empty string")
+			return {}
+		if authority.has(option["id"]):
+			errors.append("authoritative Run option ids must be unique")
+			return {}
+		authority[option["id"]] = _deep_copy(option)
+	return authority
+
+
+func _apply_reward_option(
+	candidate: Dictionary,
+	option: Dictionary,
+	errors: Array[String],
+) -> bool:
+	match option["type"]:
+		"freeSkill":
+			candidate["free_skill_ids"].append(option["payload_id"])
+			return true
+		"relic":
+			candidate["relic_ids"].append(option["payload_id"])
+			return true
+		"heal":
+			for entry: Dictionary in candidate["piece_slots"]:
+				if entry["hp_ratio"] > 0.0:
+					entry["hp_ratio"] = minf(1.0, entry["hp_ratio"] + REWARD_HEAL_RATIO)
+			return true
+		"hero":
+			return _apply_hero_option(candidate, option, errors)
+	errors.append("unsupported reward option type: %s" % str(option.get("type")))
+	return false
+
+
+func _apply_hero_option(
+	candidate: Dictionary,
+	option: Dictionary,
+	errors: Array[String],
+) -> bool:
+	var hero_id: int = option["payload_id"]
+	if candidate["hero_deployment_slots"].has(str(hero_id)):
+		return false
+	var occupied: Array = candidate["hero_deployment_slots"].values()
+	for preferred_slot in [4, 5, 6, 1, 2, 3]:
+		if preferred_slot not in occupied:
+			candidate["hero_deployment_slots"][str(hero_id)] = preferred_slot
+			_sync_roster_views(candidate)
+			return true
+	errors.append("roguelike roster is full")
+	return false
+
+
+func _forge_heal_cost(state: Dictionary) -> Variant:
+	if not state["active"] or state["status"] != "forge":
+		return null
+	if not state["piece_slots"].any(func(entry: Dictionary) -> bool:
+		return entry["hp_ratio"] < 1.0
+	):
+		return null
+	var base: int = 0 if state["forge_uses_this_node"] == 0 else (
+		15 + (state["forge_uses_this_node"] - 1) * 10
+	)
+	return _currency_cost(base, state)
+
+
+func _skill_price(chapter: int) -> int:
+	return 18 + chapter * 2
+
+
+func _relic_price(chapter: int) -> int:
+	return 35 + chapter * 5
+
+
+func _class_relic_price(chapter: int) -> int:
+	return 30 + chapter * 5
+
+
+func _currency_cost(base_cost: int, state: Dictionary) -> int:
+	if base_cost == 0:
+		return 0
+	return int(ceil(float(base_cost) * 0.75)) if "discountCard" in state["relic_ids"] else base_cost
+
+
+func _can_add_currency(state: Dictionary, amount: int, errors: Array[String]) -> bool:
+	if amount < 0 or state["currency"] > 9223372036854775807 - amount:
+		errors.append("currency change must remain a non-negative 64-bit integer")
+		return false
+	return true
+
+
+func _add_currency(state: Dictionary, amount: int, errors: Array[String]) -> bool:
+	if not _can_add_currency(state, amount, errors):
+		return false
+	state["currency"] += amount
+	return true
 
 
 func _finish_successful_node(
@@ -308,8 +874,15 @@ func _prepare_recruitment(candidate: Dictionary, errors: Array[String]) -> bool:
 		options.append({
 			"id": "reward:hero:%d" % hero_id,
 			"payload_id": hero_id,
+			"name": _players[hero_id].name,
+			"description": "招募后加入本局后台，可在整备区调整站位。",
 			"type": "hero",
+			"price": 0,
+			"purchased": false,
 		})
+	var authority := _publish_option_authority(options, errors)
+	if not errors.is_empty():
+		return false
 	for node: Dictionary in candidate["map_nodes"]:
 		node["available"] = false
 	candidate["reward_pending"] = true
@@ -319,6 +892,8 @@ func _prepare_recruitment(candidate: Dictionary, errors: Array[String]) -> bool:
 	candidate["enemy_hp_scale"] = 1.0
 	candidate["enemy_atk_scale"] = 1.0
 	candidate["forge_uses_this_node"] = 0
+	_reward_option_authority = authority
+	_shop_option_authority.clear()
 	return true
 
 
@@ -361,6 +936,10 @@ func _clear_node_runtime(candidate: Dictionary) -> void:
 	candidate["reward_options"] = []
 	candidate["shop_options"] = []
 	candidate["forge_uses_this_node"] = 0
+	_reward_option_authority.clear()
+	_shop_option_authority.clear()
+	_battle_launch_authority.clear()
+	_battle_progress_session = null
 
 
 func _is_recruitment_milestone(node: Dictionary) -> bool:
@@ -396,6 +975,10 @@ func _atomic(command: Callable, errors: Array[String]) -> bool:
 	errors.clear()
 	if not _require_valid(errors) or not _validate_state(_state, errors):
 		return false
+	var reward_authority_before: Dictionary = _deep_copy(_reward_option_authority)
+	var shop_authority_before: Dictionary = _deep_copy(_shop_option_authority)
+	var battle_authority_before: Dictionary = _deep_copy(_battle_launch_authority)
+	var battle_progress_before: Variant = _battle_progress_session
 	var transition_errors: Array[String] = []
 	var random_errors: Array[String] = []
 	var result: Variant = _random.with_transaction(func() -> bool:
@@ -412,7 +995,13 @@ func _atomic(command: Callable, errors: Array[String]) -> bool:
 	for message: String in random_errors:
 		if message not in errors:
 			errors.append(message)
-	return typeof(result) == TYPE_BOOL and result
+	var committed: bool = typeof(result) == TYPE_BOOL and result
+	if not committed:
+		_reward_option_authority = reward_authority_before
+		_shop_option_authority = shop_authority_before
+		_battle_launch_authority = battle_authority_before
+		_battle_progress_session = battle_progress_before
+	return committed
 
 
 func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
@@ -424,7 +1013,7 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 		if state != RunContractScript.create():
 			errors.append("inactive Run must equal the canonical idle state")
 			return false
-		return true
+		return _validate_no_options(state, errors)
 	if state["chapter"] < 1:
 		errors.append("active Run chapter must be from 1 through 3")
 		return false
@@ -449,19 +1038,16 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 		):
 			errors.append("hero selection must not own roster, cards, map, or current node")
 			return false
-		return _no_m5_04_options(state, errors)
+		return _validate_no_options(state, errors)
 	if state["hero_deployment_slots"].is_empty():
 		errors.append("active post-selection Run requires a deployed roster")
 		return false
 	if not _owned_includes_initial_choice(state):
 		errors.append("Run roster must retain the selected initial hero")
 		return false
-	if state["free_skill_ids"].size() < INITIAL_FREE_SKILL_COUNT:
-		errors.append("active post-selection Run requires its initial free-skill cards")
-		return false
 	if not _validate_map(state, errors) or not _validate_status(state, errors):
 		return false
-	return _no_m5_04_options(state, errors)
+	return true
 
 
 func _validate_initial_choices(state: Dictionary, errors: Array[String]) -> bool:
@@ -544,6 +1130,11 @@ func _validate_map(state: Dictionary, errors: Array[String]) -> bool:
 func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 	var status: String = state["status"]
 	var current := _current_node(state)
+	if status != "fighting" and (
+		not _battle_launch_authority.is_empty() or _battle_progress_session != null
+	):
+		errors.append("non-fighting Run must not retain battle launch or progress authority")
+		return false
 	var available_count: int = state["map_nodes"].filter(func(node: Dictionary) -> bool:
 		return node["available"]
 	).size()
@@ -556,7 +1147,10 @@ func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 		):
 			errors.append("map status requires a non-empty frontier and no current node")
 			return false
-		return true
+		if state["forge_uses_this_node"] != 0:
+			errors.append("map status must not retain forge uses")
+			return false
+		return _validate_no_options(state, errors)
 	if status == "cleared":
 		if (
 			state["chapter"] != 3
@@ -566,6 +1160,8 @@ func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 			or state["enemy_atk_scale"] != 1.0
 		):
 			errors.append("cleared status requires the completed chapter-three boss")
+			return false
+		if state["forge_uses_this_node"] != 0 or not _validate_no_options(state, errors):
 			return false
 		return state["map_nodes"].any(func(node: Dictionary) -> bool:
 			return node["type"] == "boss" and node["completed"]
@@ -577,7 +1173,17 @@ func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 		if current["type"] not in BATTLE_NODE_TYPES:
 			errors.append("battle status requires a battle current node")
 			return false
-		return true
+		if state["forge_uses_this_node"] != 0:
+			errors.append("battle status must not retain forge uses")
+			return false
+		if not _validate_no_options(state, errors):
+			return false
+		if status == "failed":
+			if not _battle_launch_authority.is_empty() or _battle_progress_session != null:
+				errors.append("failed battle must not retain launch or progress authority")
+				return false
+			return true
+		return _validate_battle_launch(state, current, errors)
 	if status in NON_BATTLE_STATUS_BY_TYPE.values():
 		if NON_BATTLE_STATUS_BY_TYPE.get(current["type"]) != status:
 			errors.append("non-battle status must match the current node type")
@@ -585,15 +1191,57 @@ func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 		if state["enemy_hp_scale"] != 1.0 or state["enemy_atk_scale"] != 1.0:
 			errors.append("non-battle status must keep neutral enemy scales")
 			return false
-		return true
+		if status == "event":
+			if state["forge_uses_this_node"] != 0:
+				errors.append("event status must not retain forge uses")
+				return false
+			return _validate_no_options(state, errors)
+		if state["reward_pending"] or not state["reward_options"].is_empty():
+			errors.append("shop and forge statuses must not retain reward options")
+			return false
+		if not _reward_option_authority.is_empty():
+			errors.append("shop and forge statuses must not retain reward authority")
+			return false
+		if status == "shop" and state["forge_uses_this_node"] != 0:
+			errors.append("shop status must not retain forge uses")
+			return false
+		var allowed_types: Array = FORGE_OPTION_TYPES if status == "forge" else SHOP_OPTION_TYPES
+		return _validate_option_list(
+			state["shop_options"], allowed_types, _shop_option_authority,
+			"shop options", state, errors,
+		)
 	if status == "reward":
-		if not state["reward_pending"] or not _validate_recruitment_options(state, errors):
+		if (
+			not state["reward_pending"]
+			or not state["shop_options"].is_empty()
+			or not _shop_option_authority.is_empty()
+			or state["forge_uses_this_node"] != 0
+			or not _validate_option_list(
+				state["reward_options"], REWARD_OPTION_TYPES,
+				_reward_option_authority, "reward options", state, errors,
+			)
+		):
 			return false
-		if state["enemy_hp_scale"] != 1.0 or state["enemy_atk_scale"] != 1.0:
-			errors.append("recruitment status must keep neutral enemy scales")
+		var hero_only: bool = state["reward_options"].all(func(option: Dictionary) -> bool:
+			return option["type"] == "hero"
+		)
+		if hero_only:
+			if not _validate_recruitment_options(state, errors):
+				return false
+			if state["enemy_hp_scale"] != 1.0 or state["enemy_atk_scale"] != 1.0:
+				errors.append("recruitment status must keep neutral enemy scales")
+				return false
+			return _is_recruitment_milestone(current)
+		if current["type"] not in BATTLE_NODE_TYPES:
+			errors.append("battle reward requires a battle current node")
 			return false
-		return _is_recruitment_milestone(current)
-	errors.append("unsupported active Run status for M5-03: %s" % status)
+		var expected_scales := MapSystemScript.get_node_scales(current, errors)
+		return (
+			not expected_scales.is_empty()
+			and state["enemy_hp_scale"] == expected_scales["hp"]
+			and state["enemy_atk_scale"] == expected_scales["atk"]
+		)
+	errors.append("unsupported active Run status for M5-04: %s" % status)
 	return false
 
 
@@ -604,7 +1252,7 @@ func _validate_recruitment_options(state: Dictionary, errors: Array[String]) -> 
 		return false
 	var seen := {}
 	for raw_option: Variant in options:
-		if typeof(raw_option) != TYPE_DICTIONARY or raw_option.keys() != RECRUITMENT_OPTION_KEYS:
+		if typeof(raw_option) != TYPE_DICTIONARY or raw_option.keys() != OPTION_KEYS:
 			errors.append("recruitment option must keep the canonical hero option shape")
 			return false
 		var option: Dictionary = raw_option
@@ -612,10 +1260,14 @@ func _validate_recruitment_options(state: Dictionary, errors: Array[String]) -> 
 		if (
 			option["type"] != "hero"
 			or typeof(hero_id) != TYPE_INT
+			or not _players.has(hero_id)
 			or option["id"] != "reward:hero:%d" % hero_id
+			or option["name"] != _players[hero_id].name
+			or option["description"] != "招募后加入本局后台，可在整备区调整站位。"
+			or option["price"] != 0
+			or option["purchased"] != false
 			or seen.has(hero_id)
 			or state["hero_deployment_slots"].has(str(hero_id))
-			or not _players.has(hero_id)
 			or _players[hero_id].exclusive_skill_id == "fate"
 		):
 			errors.append("recruitment options must be unique unowned non-fate heroes")
@@ -624,14 +1276,155 @@ func _validate_recruitment_options(state: Dictionary, errors: Array[String]) -> 
 	return true
 
 
-func _no_m5_04_options(state: Dictionary, errors: Array[String]) -> bool:
-	if not state["shop_options"].is_empty():
-		errors.append("M5-03 does not populate shop or forge options")
-		return false
-	if state["status"] != "reward" and (state["reward_pending"] or not state["reward_options"].is_empty()):
-		errors.append("M5-03 reward fields are reserved for recruitment")
+func _validate_no_options(state: Dictionary, errors: Array[String]) -> bool:
+	if (
+		state["reward_pending"]
+		or not state["reward_options"].is_empty()
+		or not state["shop_options"].is_empty()
+		or not _reward_option_authority.is_empty()
+		or not _shop_option_authority.is_empty()
+	):
+		errors.append("%s status must not retain reward or shop options" % state["status"])
 		return false
 	return true
+
+
+func _validate_battle_launch(
+	state: Dictionary,
+	node: Dictionary,
+	errors: Array[String],
+) -> bool:
+	if _battle_launch_authority.keys() != ["node_id", "battle_seed", "stage_id", "encounter"]:
+		errors.append("fighting Run requires one authoritative battle launch snapshot")
+		return false
+	var encounter: Variant = _battle_launch_authority["encounter"]
+	if (
+		_battle_launch_authority["node_id"] != node["id"]
+		or _battle_launch_authority["stage_id"] != STAGE_ID_BY_CHAPTER[state["chapter"]]
+		or typeof(_battle_launch_authority["battle_seed"]) != TYPE_INT
+		or typeof(encounter) != TYPE_DICTIONARY
+		or encounter.get("hp_scale") != state["enemy_hp_scale"]
+		or encounter.get("atk_scale") != state["enemy_atk_scale"]
+	):
+		errors.append("fighting Run battle launch diverged from its current node")
+		return false
+	if _battle_progress_session != null and (
+		_battle_progress_session.get_script() != RunBattleProgressScript
+		or not _battle_progress_session.is_bound_to(state)
+	):
+		errors.append("fighting Run owns an invalid battle progress session")
+		return false
+	return true
+
+
+func _validate_option_list(
+	options: Array,
+	expected_types: Array,
+	authority: Dictionary,
+	label: String,
+	state: Dictionary,
+	errors: Array[String],
+) -> bool:
+	var seen := {}
+	for raw_option: Variant in options:
+		if typeof(raw_option) != TYPE_DICTIONARY:
+			errors.append("%s must contain only canonical option Dictionaries" % label)
+			return false
+		var option: Dictionary = raw_option
+		if option.keys() != OPTION_KEYS or seen.has(option.get("id")):
+			errors.append("%s must contain unique canonical option ids" % label)
+			return false
+		seen[option["id"]] = true
+		if not _validate_option(option, expected_types, authority, false, state):
+			errors.append("%s must match their authoritative snapshots one-to-one" % label)
+			return false
+	if authority.size() != seen.size():
+		errors.append("%s must match their authoritative snapshots one-to-one" % label)
+		return false
+	for option_id: Variant in authority:
+		if not seen.has(option_id):
+			errors.append("%s must match their authoritative snapshots one-to-one" % label)
+			return false
+	return true
+
+
+func _validate_option(
+	option: Dictionary,
+	expected_types: Array,
+	authority: Dictionary,
+	require_unpurchased: bool,
+	state: Dictionary,
+) -> bool:
+	if (
+		option.keys() != OPTION_KEYS
+		or option.get("type") not in expected_types
+		or typeof(option.get("id")) != TYPE_STRING
+		or option["id"].is_empty()
+		or typeof(option.get("name")) != TYPE_STRING
+		or typeof(option.get("description")) != TYPE_STRING
+		or typeof(option.get("price")) != TYPE_INT
+		or option["price"] < 0
+		or typeof(option.get("purchased")) != TYPE_BOOL
+		or (require_unpurchased and option["purchased"])
+		or not authority.has(option["id"])
+		or option != authority[option["id"]]
+	):
+		return false
+	match option["type"]:
+		"heal":
+			return (
+				option["id"] == "reward:heal"
+				and option["payload_id"] == null
+				and option["price"] == 0
+				and option["purchased"] == false
+			)
+		"hero":
+			var hero_id: Variant = option["payload_id"]
+			return (
+				typeof(hero_id) == TYPE_INT
+				and _players.has(hero_id)
+				and not state["hero_deployment_slots"].has(str(hero_id))
+				and _players[hero_id].exclusive_skill_id != "fate"
+				and option["id"] == "reward:hero:%d" % hero_id
+				and option["price"] == 0
+				and option["purchased"] == false
+			)
+		"freeSkill", "shopFreeSkill":
+			var skill_id: Variant = option["payload_id"]
+			var prefix := "reward" if option["type"] == "freeSkill" else "shop"
+			var expected_price := 0 if option["type"] == "freeSkill" else _skill_price(state["chapter"])
+			return (
+				typeof(skill_id) == TYPE_STRING
+				and skill_id != "basicDamage"
+				and _skills.has(skill_id)
+				and option["id"] == "%s:skill:%s" % [prefix, skill_id]
+				and option["price"] == expected_price
+				and (option["type"] == "shopFreeSkill" or option["purchased"] == false)
+			)
+		"relic", "shopRelic", "forgeRelic":
+			var relic_id: Variant = option["payload_id"]
+			if typeof(relic_id) != TYPE_STRING or not _relics.has(relic_id):
+				return false
+			var relic: Variant = _relics[relic_id]
+			var owned: bool = relic_id in state["relic_ids"]
+			if option["type"] == "forgeRelic":
+				return (
+					option["id"] == "forge:relic:%s" % relic_id
+					and option["price"] == _class_relic_price(state["chapter"])
+					and relic.category == "classUpgrade"
+					and owned == option["purchased"]
+				)
+			var prefix := "reward" if option["type"] == "relic" else "shop"
+			var expected_price := 0 if option["type"] == "relic" else _relic_price(state["chapter"])
+			return (
+				relic.category != "classUpgrade"
+				and relic.category != "shentongEvolve"
+				and relic_id not in SHENTONG_EVOLUTION_RELIC_IDS
+				and option["id"] == "%s:relic:%s" % [prefix, relic_id]
+				and option["price"] == expected_price
+				and owned == option["purchased"]
+			)
+	return false
 
 
 func _owned_includes_initial_choice(state: Dictionary) -> bool:
@@ -674,17 +1467,40 @@ func _node_by_id(nodes: Array, node_id: Variant) -> Dictionary:
 	return {}
 
 
+func _option_by_id(options: Array, option_id: Variant) -> Dictionary:
+	if typeof(option_id) != TYPE_STRING:
+		return {}
+	for raw_option: Variant in options:
+		if typeof(raw_option) == TYPE_DICTIONARY and raw_option.get("id") == option_id:
+			return raw_option
+	return {}
+
+
+func _battle_relic_ids() -> Array:
+	var result: Array = []
+	for relic_id: Variant in _state["relic_ids"]:
+		if (
+			_relics.has(relic_id)
+			and relic_id not in SHENTONG_EVOLUTION_RELIC_IDS
+			and _relics[relic_id].category != "shentongEvolve"
+		):
+			result.append(relic_id)
+	return result
+
+
 func _read_catalogs(content_catalog: Dictionary, errors: Array[String]) -> bool:
 	if (
 		typeof(content_catalog.get("characters")) != TYPE_DICTIONARY
 		or typeof(content_catalog["characters"].get("players")) != TYPE_DICTIONARY
 		or typeof(content_catalog.get("skills")) != TYPE_DICTIONARY
+		or typeof(content_catalog.get("relics")) != TYPE_DICTIONARY
 		or typeof(content_catalog.get("roguelike_content")) != TYPE_DICTIONARY
 	):
 		errors.append("Run lifecycle M1 catalog groups are missing")
 		return false
 	_players = content_catalog["characters"]["players"]
 	_skills = content_catalog["skills"]
+	_relics = content_catalog["relics"]
 	_roguelike_catalog = content_catalog["roguelike_content"]
 	return true
 
@@ -700,3 +1516,17 @@ func _replace(target: Dictionary, source: Dictionary) -> void:
 	target.clear()
 	for key: Variant in source:
 		target[key] = source[key]
+
+
+func _deep_copy(value: Variant) -> Variant:
+	if typeof(value) == TYPE_ARRAY:
+		var array_copy: Array = []
+		for item: Variant in value:
+			array_copy.append(_deep_copy(item))
+		return array_copy
+	if typeof(value) == TYPE_DICTIONARY:
+		var dictionary_copy := {}
+		for key: Variant in value:
+			dictionary_copy[_deep_copy(key)] = _deep_copy(value[key])
+		return dictionary_copy
+	return value

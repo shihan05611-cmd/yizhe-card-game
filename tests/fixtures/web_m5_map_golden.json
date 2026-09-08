@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "fixture_id": "web-m5-map-golden-v1",
-  "generated_utc": "2026-09-07T07:08:44.297Z",
+  "generated_utc": "2026-09-07T15:15:33.835Z",
   "authoritative_modules": {
     "map_system": "scripts/systems/roguelike/map-system.js",
     "roguelike_content": "scripts/data/roguelike-content.js",
@@ -12,10 +12,10 @@
     "enemy_specials": "scripts/data/enemy-specials.js"
   },
   "authoritative_sha256": {
-    "map_system": "b60fd39a533f28069ecba12818e073d8417a8698e166403a76f30e1b21bf7e2f",
+    "map_system": "47e3f4796d43fa03c6e9738f5bba39854ea57ac61153d7a6e5f5325f2b56c00a",
     "roguelike_content": "437be583a2c625d4b3068982961fcd8699e2935702c17a4ee9997fb73332d7c2",
-    "random": "cce70afb44d2f5de53f46c9fbe4d7c005164cfe1d5e050aba27d31a1525c58b6",
-    "skills": "77120c04409c118b90fc0d28863d9997725a4d049ffa9f4ab33d3ca9eb460d36",
+    "random": "ed3edafa9b1694bbd9fb92ba8ca1ad00843a7a27f2c5021ef33a233be43feba2",
+    "skills": "3e013a780970e6bce63627130294e4be805c851834027e3a1d330850a6bc5edd",
     "relics": "43c89ae13bbc207926bf91274d00c41fa29821f4b338c0ed815153a7f988962f",
     "piece_classes": "2af14038fd2850b542a94e9587f1ce9e5c31f18ac40451defa4dfda7bb9dda9c",
     "enemy_specials": "704e7df088f6269025dd3afbf768935743feb9c4098fe1c0c1560f4713da10e4"

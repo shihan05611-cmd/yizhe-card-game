@@ -16,9 +16,10 @@ const DEFAULT_OUTPUT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "web_m5_map_golden.json",
 );
+const DEFAULT_WEB_ROOT = "C:\\Users\\78566\\Documents\\ChatGPT\\弈者-独立版\\Html";
 
 function parseArgs(argv) {
-  let webRoot = "";
+  let webRoot = process.env.YIZHE_WEB_ROOT || DEFAULT_WEB_ROOT;
   let output = DEFAULT_OUTPUT;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--web-root") {
@@ -31,7 +32,11 @@ function parseArgs(argv) {
       throw new Error(`unknown argument: ${argv[index]}`);
     }
   }
-  if (!webRoot) throw new Error("--web-root is required");
+  if (!webRoot) {
+    throw new Error(
+      "--web-root is required (or set YIZHE_WEB_ROOT to 弈者-独立版/Html)",
+    );
+  }
   return { webRoot: path.resolve(webRoot), output: path.resolve(output) };
 }
 

@@ -2,11 +2,21 @@
 
 ## 工程基准
 
-- 唯一工程根：`C:/Users/heliashi/Documents/弈者卡牌版/弈者卡牌Godot/弈者卡牌版`
+- 工程根：本仓库根目录（当前为 `D:\游戏开发\弈者卡牌版`）。脚本会自行解析根目录，不依赖开发机用户名或固定盘符。
+- Web 权威参考：`C:\Users\78566\Documents\ChatGPT\弈者-独立版\Html`；版本与只读边界见 [`docs/web-reference.md`](docs/web-reference.md)。
 - 引擎版本：Godot 4.7.1 stable（GL Compatibility）
 - 设计分辨率：1200 × 700；窗口保持 `canvas_items` 拉伸与 `expand` 宽高比策略。
 
-不要从上层 `弈者卡牌Godot` 目录启动，也不要把 Web 工程或 STR 参考工程当作本工程的一部分。
+不要把 Web 参考工程当作本工程的一部分或在其中写入。旧文档中的 `heliashi`、`新弈者` 和 `docs/migration-plan.md` 是历史环境/资料名，不是当前可执行路径。
+
+## 当前成果与下一步
+
+- M0–M4（工程基础、数据/战斗内核、卡牌会话、单场战斗表现）已完成自动测试与独立 Review。
+- M5（无界面肉鸽 Run、经济节点、真实战斗桥、休眠神通领域和三章编排）已完成，M5-90 Review PASS；当前成果已保存于本仓库。
+- 当前可操作的是单场卡牌战斗；肉鸽领域已可由代码驱动，但尚未有玩家可操作的 Run UI，也没有存档/恢复或完整真实三章通关验证。
+- 下一开发阶段为 **M5.5 肉鸽可玩闭环**：选人 → 地图 → 战斗 → 奖励 → 下一节点；随后才是节点间存档与真实通关/平衡。
+
+当前唯一现状与路线入口是 [`docs/迁移现状与后续路线-2026-09-08.md`](docs/迁移现状与后续路线-2026-09-08.md)。M1–M4 和布局交接均为保留证据的历史快照；M5 的最终交接见 [`docs/m5-handoff.md`](docs/m5-handoff.md)。
 
 ## 无头测试
 
@@ -44,7 +54,7 @@ $LASTEXITCODE
 
 依赖方向固定为 `data → core → systems → app → ui`。`core` 是不依赖 Node、场景或文件系统的纯逻辑；`systems` 组合纯逻辑系统；`app` 与 autoload 负责运行时装配和以后获准的 I/O；`ui`/场景只能消费 ViewModel 并发出 Command。
 
-M0 只注册五个 autoload：`Signals`、`GameRoot`、`RunState`、`HandManager`、`DebugLogger`。前四者目前只是可解析的边界壳，不能据此推断卡牌、战斗、肉鸽、存档或 UI API；`Signals` 仅有基础生命周期信号。后续业务接口必须由对应里程碑单独冻结。
+Autoload 仍限于 `Signals`、`GameRoot`、`RunState`、`HandManager`、`DebugLogger`，但它们不再只是 M0 边界壳：当前已承载 M3 卡牌会话和 M5 Run/战斗桥接的既有入口。新增功能仍须由相应里程碑冻结接口；特别是休眠神通不得绕过新的产品决策直接接入玩家流程。
 
 ## 日志与不变量
 

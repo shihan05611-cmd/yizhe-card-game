@@ -53,8 +53,10 @@ func _test_fixture_provenance(harness: TestHarness, fixture: Dictionary) -> void
 		["combat", "allyPolicy", "enemyPolicy", "run"]
 	)
 	harness.assert_equal(fixture["provenance"]["source_sha256"].length(), 64)
+	var authoritative_module := str(fixture["provenance"]["authoritative_module"])
 	harness.assert_true(
-		fixture["provenance"]["authoritative_module"].ends_with("新弈者/Html/scripts/core/random.js")
+		authoritative_module.ends_with("新弈者/Html/scripts/core/random.js")
+		or authoritative_module.ends_with("弈者-独立版/Html/scripts/core/random.js")
 	)
 	harness.assert_contains(fixture["provenance"]["algorithm"], "exact uint32 numerators")
 	harness.assert_true(not fixture["provenance"]["generated_utc"].is_empty())

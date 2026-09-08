@@ -11,6 +11,7 @@ const SPEED_OPTIONS := [1.0, 2.0, 3.0, 4.0]
 
 var _hand_manager: Node
 var _runtime: Variant = null
+var _relic_action_adapter: Variant = null
 var _catalogs: Dictionary = {}
 var _stream: Variant
 var _initialized := false
@@ -45,6 +46,7 @@ func start(config: Variant) -> RefCounted:
 	if not started.ok:
 		return started
 	_runtime = built["runtime"]
+	_relic_action_adapter = built["relic_action_adapter"]
 	_catalogs = built["catalogs"]
 	_initialized = true
 	var battle_start: Dictionary = _runtime.component("ports").call_action(
@@ -196,6 +198,20 @@ func acknowledge_presentation_through(sequence: int) -> void:
 
 func presentation_events() -> Array[Dictionary]:
 	return _stream.all_events()
+
+
+func settlement_snapshot() -> Dictionary:
+	if not _initialized:
+		return {}
+	var state_errors: Array[String] = []
+	var state: Dictionary = BattleStateScript.snapshot(_runtime.component("state"), state_errors)
+	if not state_errors.is_empty():
+		return {}
+	return {
+		"game_over": state["game_over"],
+		"battle_result": state["battle_result"],
+		"allies": state["allies"].duplicate(true),
+	}
 
 
 func _card_view(instance_id: String) -> Dictionary:
