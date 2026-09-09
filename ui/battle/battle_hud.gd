@@ -1,6 +1,9 @@
 class_name BattleHud
 extends Control
 
+const RelicStripScene = preload("res://scenes/battle/relic_strip.tscn")
+var relic_strip: Control
+
 signal end_turn_requested
 signal speed_requested(speed: float)
 signal auto_battle_requested(enabled: bool)
@@ -10,6 +13,8 @@ signal combat_log_toggle_requested
 @onready var phase_label: Label = %PhaseLabel
 @onready var sp_label: Label = %SpLabel
 @onready var sp_bar: ProgressBar = %SpBar
+@onready var sp_orb: Control = %SpOrb
+@onready var sp_detail: Label = %SpDetail
 @onready var pile_count_draw: Label = %DrawCount
 @onready var hand_count: Label = %HandCount
 @onready var discard_count: Label = %DiscardCount
@@ -29,6 +34,14 @@ var _log_unread := 0
 
 
 func _ready() -> void:
+	relic_strip = RelicStripScene.instantiate()
+	relic_strip.name = "Relics"
+	add_child(relic_strip)
+	relic_strip.anchor_right = 1.0
+	relic_strip.offset_left = 32.0
+	relic_strip.offset_right = -32.0
+	relic_strip.offset_top = 59.0
+	relic_strip.offset_bottom = 98.0
 	end_turn_button.pressed.connect(func() -> void: end_turn_requested.emit())
 	for index in speed_buttons.size():
 		var speed := float(index + 1)
@@ -84,6 +97,7 @@ func is_input_locked() -> bool:
 
 
 func _apply(vm: Dictionary) -> void:
+	relic_strip.bind_relics(vm.get("relics", []))
 	var battle: Dictionary = vm.get("battle", {})
 	var resources: Dictionary = vm.get("resources", {})
 	var piles: Dictionary = vm.get("piles", {})
@@ -94,7 +108,11 @@ func _apply(vm: Dictionary) -> void:
 	phase_label.text = "我方行动" if str(battle.get("phase", "")) == "player_input" else "战斗演算"
 	if bool(battle.get("game_over", false)):
 		phase_label.text = "战斗结束"
-	sp_label.text = "SP %s / %s" % [str(snappedf(sp, 0.1)).trim_suffix(".0"), str(snappedf(sp_max, 0.1)).trim_suffix(".0")]
+	sp_label.text = str(snappedf(sp, 0.1)).trim_suffix(".0")
+	sp_detail.text = "技能点 · %s / %s" % [
+		str(snappedf(sp, 0.1)).trim_suffix(".0"), str(snappedf(sp_max, 0.1)).trim_suffix(".0"),
+	]
+	sp_orb.bind_resources(sp, sp_max)
 	sp_bar.max_value = sp_max
 	sp_bar.value = clampf(sp, 0.0, sp_max)
 	pile_count_draw.text = str(int(piles.get("draw", 0)))

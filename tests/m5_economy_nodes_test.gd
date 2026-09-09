@@ -115,7 +115,9 @@ func _test_reward_multiset_and_heal(harness: TestHarness) -> void:
 		func(option: Dictionary) -> String: return option["id"]
 	), ["reward:heal"])
 	harness.assert_true(heal_lifecycle.select_reward("reward:heal", heal_errors), "; ".join(heal_errors))
-	harness.assert_equal(_piece_ratios(heal_state), [0.0, 0.55, 1.0, 1.0, 0.85, 0.36])
+	# Slots 3 and 6 are now actual empty formation positions. Healing neither
+	# revives a fallen deployed piece nor turns an empty position into a unit.
+	harness.assert_equal(_piece_ratios(heal_state), [0.0, 0.55, 0.8, 1.0, 0.85, 0.36])
 
 
 func _test_shop_options_and_prices(harness: TestHarness) -> void:
@@ -230,14 +232,14 @@ func _test_forge_options_and_restore(harness: TestHarness) -> void:
 	_choose_type(lifecycle, state, "forge", harness, errors)
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), null)
 	for index in state["piece_slots"].size():
-		state["piece_slots"][index]["hp_ratio"] = 0.0 if index == 0 else 0.4
+		state["piece_slots"][index]["hp_ratio"] = 0.0 if index == 1 else 0.4
 	state["currency"] = 100
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), 0)
 	harness.assert_true(lifecycle.use_forge_heal(errors), "; ".join(errors))
-	harness.assert_equal(_piece_ratios(state), [1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+	harness.assert_equal(_piece_ratios(state), [0.4, 1.0, 0.4, 1.0, 1.0, 1.0])
 	harness.assert_equal(state["forge_uses_this_node"], 1)
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), null)
-	state["piece_slots"][0]["hp_ratio"] = 0.5
+	state["piece_slots"][1]["hp_ratio"] = 0.5
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), 15)
 	state["relic_ids"].append("discountCard")
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), 12)
@@ -249,7 +251,7 @@ func _test_forge_options_and_restore(harness: TestHarness) -> void:
 	harness.assert_true(lifecycle.use_forge_heal(errors), "; ".join(errors))
 	harness.assert_equal(state["currency"], 0)
 	harness.assert_equal(state["forge_uses_this_node"], 2)
-	state["piece_slots"][1]["hp_ratio"] = 0.5
+	state["piece_slots"][3]["hp_ratio"] = 0.5
 	harness.assert_equal(lifecycle.get_forge_heal_cost(errors), 19)
 
 

@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/battle/relic_strip.gd" id="script"]
+
+[node name="Relics" type="ScrollContainer"]
+mouse_filter = 1
+vertical_scroll_mode = 0
+script = ExtResource("script")
+
+[node name="Row" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 9

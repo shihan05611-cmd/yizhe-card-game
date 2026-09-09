@@ -17,6 +17,15 @@ const RUN_ALLY_CLASS_BY_SLOT := {
 	1: "shield", 2: "shield", 3: "shield",
 	4: "assassin", 5: "crossbow", 6: "banner",
 }
+# Run layers share the counter-stage enemy roster. Layer progression controls
+# how many already-authored enemy Yizhes are active; direct M4 starts keep the
+# complete roster authored by their selected stage.
+const RUN_ENEMY_HERO_IDS_BY_STAGE := {
+	"counter": [101],
+	"burn": [101, 102],
+	"core": [101, 102, 103],
+}
+const RUN_ENEMY_HERO_SOURCE_STAGE := "counter"
 
 
 static func create(config: Variant, stream: Variant, errors: Array[String]) -> Dictionary:
@@ -103,6 +112,7 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		"catalogs": catalogs,
 		"deployed_hero_ids": config["deployed_hero_ids"].duplicate(),
 		"free_skill_ids": config["free_skill_ids"].duplicate(),
+		"exclusive_card_ids": config.get("exclusive_card_ids", []).duplicate(),
 		"battle_seed": config["battle_seed"],
 		"run_progress": config.get("run_progress"),
 		"relic_ids": relic_ids.duplicate(),
@@ -132,8 +142,11 @@ static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array
 			"base_crit_rate": float(definition.base_crit_rate),
 			"fist_momentum": int(definition.fist_momentum),
 		})
+	var enemy_definitions := _enemy_yizhe_definitions(config, catalogs, stage, errors)
+	if not errors.is_empty():
+		return {}
 	var enemy_heroes: Array[Dictionary] = []
-	for enemy: Dictionary in stage.enemy_yizhes:
+	for enemy: Dictionary in enemy_definitions:
 		enemy_heroes.append({
 			"id": enemy["id"],
 			"name": enemy["name"],
@@ -153,7 +166,7 @@ static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array
 		"base_sp_max": 10.0,
 		"enemy_sp": 6.0,
 		"enemy_sp_max": 6.0,
-		"allies": _run_allies(catalogs) if config.has("run_progress") else _team("ally", catalogs),
+		"allies": _run_allies(catalogs, config["run_progress"], errors) if config.has("run_progress") else _team("ally", catalogs),
 		"enemies": _encounter_team(config["encounter"], catalogs) if config.has("encounter") else _team("enemy", catalogs),
 		"player_heroes": player_heroes,
 		"enemy_heroes": enemy_heroes,
@@ -176,11 +189,36 @@ static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array
 		"game_over": false,
 		"battle_result": null,
 	}
+	if not errors.is_empty():
+		return {}
 	var state_errors: Array[String] = []
 	var state: Dictionary = BattleStateScript.create(source, state_errors)
 	if not state_errors.is_empty():
 		errors.append("battle state failed: %s" % state_errors[0])
 	return state
+
+
+static func _enemy_yizhe_definitions(
+	config: Dictionary, catalogs: Dictionary, stage: Variant, errors: Array[String]
+) -> Array:
+	if not config.has("run_progress"):
+		return stage.enemy_yizhes.duplicate(true)
+	var expected_ids: Variant = RUN_ENEMY_HERO_IDS_BY_STAGE.get(config["stage_id"])
+	var source_stage: Variant = catalogs["stages"].get(RUN_ENEMY_HERO_SOURCE_STAGE)
+	if typeof(expected_ids) != TYPE_ARRAY or source_stage == null:
+		errors.append("Run enemy Yizhe layer configuration is unavailable")
+		return []
+	var definitions_by_id := {}
+	for raw_enemy: Variant in source_stage.enemy_yizhes:
+		if typeof(raw_enemy) == TYPE_DICTIONARY:
+			definitions_by_id[raw_enemy.get("id")] = raw_enemy
+	var selected: Array = []
+	for hero_id: Variant in expected_ids:
+		if not definitions_by_id.has(hero_id):
+			errors.append("Run enemy Yizhe layer references missing hero %s" % str(hero_id))
+			return []
+		selected.append(definitions_by_id[hero_id].duplicate(true))
+	return selected
 
 
 static func _team(side: String, catalogs: Dictionary) -> Array[Dictionary]:
@@ -219,20 +257,31 @@ static func _team(side: String, catalogs: Dictionary) -> Array[Dictionary]:
 	return units
 
 
-static func _run_allies(catalogs: Dictionary) -> Array[Dictionary]:
+static func _run_allies(catalogs: Dictionary, progress: Variant, errors: Array[String]) -> Array[Dictionary]:
+	errors.clear()
+	var formation: Array = progress.formation_slots(errors)
+	if not errors.is_empty() or formation.size() != 6:
+		if errors.is_empty():
+			errors.append("Run formation projection must contain six slots")
+		return []
+	var class_by_slot := {}
+	for entry: Dictionary in formation:
+		class_by_slot[entry["slot"]] = entry["piece_class_id"]
 	var units := _team("ally", catalogs)
 	var base_block := _tuning(catalogs, "allyBaseBlock")
 	var base_crit := _tuning(catalogs, "allyBaseCrit")
 	for unit: Dictionary in units:
-		var class_id: String = RUN_ALLY_CLASS_BY_SLOT[unit["slot"]]
+		var requested: Variant = class_by_slot.get(unit["slot"])
+		var class_id: String = "default" if requested == null else requested
 		var definition: Variant = catalogs["piece_classes"][class_id]
 		unit["class_id"] = definition.id
 		unit["class_name"] = definition.name
-		unit["hp"] = float(definition.hp)
+		unit["hp"] = 0.0 if requested == null else float(definition.hp)
 		unit["max_hp"] = float(definition.hp)
 		unit["atk"] = float(definition.attack)
 		unit["base_block_rate"] = base_block + float(definition.block_bonus)
 		unit["crit_rate"] = base_crit + float(definition.crit_bonus)
+		unit["alive"] = requested != null
 	return units
 
 
@@ -290,7 +339,7 @@ static func _apply_run_projection(
 		if unit["max_hp"] <= 0.0:
 			errors.append("Run relic and permanent growth projection produced non-positive ally max HP")
 			return false
-		unit["hp"] = unit["max_hp"]
+		unit["hp"] = unit["max_hp"] if unit["alive"] else 0.0
 	var projected: Array = progress.project_allies(state["allies"], errors)
 	if not errors.is_empty():
 		return false
@@ -306,7 +355,9 @@ static func _validate_config(config: Variant, errors: Array[String]) -> bool:
 	if typeof(config) != TYPE_DICTIONARY:
 		errors.append("battle bootstrap config must have a canonical closed shape")
 		return false
-	var expected: Array = RUN_CONFIG_KEYS if config.has("run_progress") else DIRECT_CONFIG_KEYS
+	var expected: Array = (RUN_CONFIG_KEYS if config.has("run_progress") else DIRECT_CONFIG_KEYS).duplicate()
+	if config.has("exclusive_card_ids"):
+		expected.append("exclusive_card_ids")
 	if config.size() != expected.size():
 		errors.append("battle bootstrap config must have a canonical closed shape")
 		return false
@@ -322,6 +373,9 @@ static func _validate_config(config: Variant, errors: Array[String]) -> bool:
 		errors.append("deployed_hero_ids must be a non-empty Array")
 	if typeof(config["free_skill_ids"]) != TYPE_ARRAY:
 		errors.append("free_skill_ids must be an Array")
+	if typeof(config.get("exclusive_card_ids", [])) != TYPE_ARRAY:
+		errors.append("exclusive_card_ids must be an Array")
+		return false
 	if typeof(config["stage_id"]) != TYPE_STRING or config["stage_id"].strip_edges().is_empty():
 		errors.append("stage_id must be a non-empty string")
 	var seen := {}

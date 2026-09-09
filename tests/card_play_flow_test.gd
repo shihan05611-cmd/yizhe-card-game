@@ -17,6 +17,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("exclusive owner is derived and shadow can replay without quota", func() -> void:
 		_test_owner_shadow_and_no_quota(harness)
 	)
+	harness.run_test("shadow return keeps one instance through failure, full hand, ultimate generation, and turn discard", func() -> void:
+		_test_shadow_return_card_flow(harness)
+	)
 	harness.run_test("SP validator owner and forged basicDamage reject with zero changes", func() -> void:
 		_test_preflight_failures(harness)
 	)
@@ -44,9 +47,16 @@ func _test_free_card_actual_costs(harness: TestHarness) -> void:
 	harness.assert_equal(result.details["effect_call_count"], 1)
 	harness.assert_equal(original["state"]["sp"], 5.0)
 	harness.assert_equal(result.details["destination"], CardDefinitionScript.PILE_DISCARD)
-	harness.assert_equal(original["metrics"]["content_events"].size(), 1)
-	harness.assert_equal(original["metrics"]["content_events"][0]["event_id"], "freeSkillCast")
+	harness.assert_equal(original["metrics"]["content_events"].size(), 2)
+	harness.assert_equal(original["metrics"]["content_events"][0]["event_id"], "skillPointSpent")
 	harness.assert_equal(original["metrics"]["content_events"][0]["payload"]["amount"], 1)
+	harness.assert_equal(original["metrics"]["content_events"][0]["payload"]["source_side"], "ally")
+	harness.assert_equal(
+		original["metrics"]["content_events"][0]["payload"]["source_effect"]["source_id"],
+		"pieceDamageUp",
+	)
+	harness.assert_equal(original["metrics"]["content_events"][1]["event_id"], "freeSkillCast")
+	harness.assert_equal(original["metrics"]["content_events"][1]["payload"]["amount"], 1)
 	_assert_deployed_energies(harness, original["state"], [10.0, 10.0, 10.0, 10.0, 0.0])
 	# The real M2 handler applied one layer, proving the bridge did not calculate
 	# or execute the effect a second time.
@@ -64,6 +74,12 @@ func _test_free_card_actual_costs(harness: TestHarness) -> void:
 	harness.assert_equal(result.details["effective_cost"], 1)
 	harness.assert_equal(result.details["actual_cost"], 1)
 	harness.assert_equal(reduced["state"]["sp"], 5.0)
+	harness.assert_equal(
+		reduced["metrics"]["content_events"].map(func(event: Dictionary) -> String:
+			return event["event_id"]
+	),
+		["skillPointSpent", "freeSkillCast"],
+	)
 	_assert_deployed_energies(harness, reduced["state"], [10.0, 10.0, 10.0, 10.0, 0.0])
 
 	var free := Fixture.create({
@@ -75,6 +91,12 @@ func _test_free_card_actual_costs(harness: TestHarness) -> void:
 	harness.assert_equal(result.details["effective_cost"], 1)
 	harness.assert_equal(result.details["actual_cost"], 0)
 	harness.assert_equal(free["state"]["sp"], 6.0)
+	harness.assert_equal(
+		free["metrics"]["content_events"].map(func(event: Dictionary) -> String:
+			return event["event_id"]
+	),
+		["freeSkillCast"],
+	)
 	_assert_deployed_energies(harness, free["state"], [5.0, 5.0, 5.0, 5.0, 0.0])
 
 
@@ -141,6 +163,74 @@ func _test_owner_shadow_and_no_quota(harness: TestHarness) -> void:
 	harness.assert_equal(Fixture.hero(free["state"], 9)["energy"], 10.0)
 
 
+func _test_shadow_return_card_flow(harness: TestHarness) -> void:
+	# A rejected shadow command must not create a replacement or otherwise move
+	# the original instance. This uses the actual bridge preflight, rather than a
+	# HandRuntime-only callback.
+	var rejected_fixture := Fixture.create({"sp": 3.0})
+	var rejected_ids := Fixture.put_cards_in_hand(rejected_fixture, ["exclusive:shadow"])
+	var rejected_id: String = rejected_ids[0]
+	var rejected_state: Dictionary = rejected_fixture["state"].duplicate(true)
+	var rejected_hand: Dictionary = rejected_fixture["hand"].snapshot()
+	var rejected: Variant = rejected_fixture["runtime"].play_player_card(
+		Request.new(rejected_id, "exclusive:shadow", "shadow", 2)
+	)
+	harness.assert_false(rejected.ok)
+	harness.assert_equal(rejected.code, Result.VALIDATOR_REJECTED)
+	harness.assert_equal(rejected_fixture["state"], rejected_state)
+	harness.assert_equal(rejected_fixture["hand"].snapshot(), rejected_hand)
+	harness.assert_equal(rejected_fixture["hand"].total_instance_count(), 1)
+	harness.assert_equal(
+		rejected_fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_HAND), [rejected_id]
+	)
+
+	# Fill the hand, then make shadow cross its owner's energy threshold. Shadow
+	# must remain the original hand instance, while its generated ultimate goes
+	# to draw-pile top because the hand is still full.
+	var fixture := Fixture.create({"sp": 3.0, "hero_energy": {9: 90.0}})
+	var card_ids := ["exclusive:shadow"]
+	for _index in range(6):
+		card_ids.append("free:pieceDamageUp")
+	var ids := Fixture.put_cards_in_hand(fixture, card_ids)
+	var shadow_id := ""
+	for instance_id: String in ids:
+		if fixture["hand"].get_instance_snapshot(instance_id).source_skill_id == "shadow":
+			shadow_id = instance_id
+			break
+	harness.assert_false(shadow_id.is_empty())
+	var hand_before: Array[String] = fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_HAND)
+	var played: Variant = fixture["runtime"].play_player_card(Request.new(shadow_id))
+	harness.assert_true(played.ok, played.message)
+	harness.assert_equal(played.details["destination"], CardDefinitionScript.PILE_HAND)
+	harness.assert_equal(fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_HAND), hand_before)
+	harness.assert_equal(fixture["hand"].total_instance_count(), 8)
+	harness.assert_equal(fixture["hand"].successful_play_count(shadow_id), 1)
+	harness.assert_equal(Fixture.hero(fixture["state"], 9)["energy"], 0.0)
+	var energy_change: Dictionary = played.details["energy_changes"][0]
+	var generated: Dictionary = energy_change["generated_card"]
+	var ultimate_id: String = generated["instance_id"]
+	harness.assert_equal(generated["card_id"], "ultimate:shadow")
+	harness.assert_equal(generated["destination"], CardDefinitionScript.PILE_DRAW)
+	harness.assert_equal(
+		fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_DRAW), [ultimate_id]
+	)
+
+	# Return-on-play does not grant an end-of-turn exception. The same shadow
+	# instance is discarded with the remaining hand, then the queued ultimate is
+	# the next draw before any discard reshuffle can occur.
+	var ended: Variant = fixture["hand"].end_player_turn()
+	harness.assert_true(ended.ok, ended.message)
+	harness.assert_equal(fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_HAND), [])
+	harness.assert_true(
+		shadow_id in fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_DISCARD)
+	)
+	harness.assert_equal(fixture["hand"].total_instance_count(), 8)
+	var next_draw: Variant = fixture["hand"].draw_one()
+	harness.assert_true(next_draw.ok, next_draw.message)
+	harness.assert_equal(next_draw.details["instance_id"], ultimate_id)
+	harness.assert_false(bool(next_draw.details["reshuffled"]))
+
+
 func _test_preflight_failures(harness: TestHarness) -> void:
 	var insufficient := Fixture.create({"sp": 0.0})
 	var ids := Fixture.put_cards_in_hand(insufficient, ["free:pieceDamageUp"])
@@ -176,6 +266,7 @@ func _test_committed_failure(harness: TestHarness) -> void:
 	harness.assert_equal(result.details["effect_call_count"], 1)
 	harness.assert_equal(fixture["state"]["sp"], 4.0)
 	harness.assert_equal(fixture["metrics"]["logs"].size(), 1)
+	harness.assert_equal(fixture["metrics"]["content_events"], [])
 	harness.assert_equal(fixture["runtime"].component("buffs").get_side_stacks("ally", "pieceDamageUp"), 1)
 	harness.assert_equal(fixture["hand"].successful_play_count(ids[0]), 0)
 	harness.assert_true(ids[0] in fixture["hand"].pile_instance_ids(CardDefinitionScript.PILE_HAND))

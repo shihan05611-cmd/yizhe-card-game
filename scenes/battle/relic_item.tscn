@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/art/relic_icon.gd" id="icon"]
+
+[node name="RelicItem" type="Control"]
+custom_minimum_size = Vector2(36, 36)
+mouse_filter = 0
+
+[node name="Icon" type="Control" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("icon")

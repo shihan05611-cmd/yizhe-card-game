@@ -1,30 +1,6 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://ui/effects/fx_primitive.gd" id="1"]
-
-[sub_resource type="StyleBoxFlat" id="ImpactStyle"]
-bg_color = Color(1, 0.25, 0.12, 0.16)
-border_width_left = 5
-border_width_top = 5
-border_width_right = 5
-border_width_bottom = 5
-border_color = Color(1, 0.54, 0.2, 0.96)
-corner_radius_top_left = 36
-corner_radius_top_right = 36
-corner_radius_bottom_right = 36
-corner_radius_bottom_left = 36
-
-[sub_resource type="StyleBoxFlat" id="MarkStyle"]
-bg_color = Color(1, 0.23, 0.14, 0.12)
-border_width_left = 3
-border_width_top = 3
-border_width_right = 3
-border_width_bottom = 3
-border_color = Color(1, 0.35, 0.18, 0.9)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
 
 [node name="MultiTarget" type="Control"]
 layout_mode = 0
@@ -35,32 +11,13 @@ offset_bottom = 36.0
 mouse_filter = 2
 script = ExtResource("1")
 
-[node name="Impact" type="Panel" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("ImpactStyle")
+[node name="Impact" type="Control" parent="."]
+mouse_filter = 2
 
-[node name="Mark" type="Panel" parent="."]
+[node name="Mark" type="Control" parent="."]
 visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("MarkStyle")
+mouse_filter = 2
 
-[node name="Assemble" type="Panel" parent="."]
+[node name="Assemble" type="Control" parent="."]
 visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("MarkStyle")
-
+mouse_filter = 2

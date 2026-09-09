@@ -14,7 +14,7 @@ const TuningValueDefinition = preload("res://data/definitions/tuning_value_defin
 
 const REQUEST_KEYS := [
 	"state", "attacker_side", "attacker_id", "defender_side", "defender_id",
-	"primary_hit", "permanent_buffs",
+	"primary_hit", "defender_alive_after_primary_hit", "permanent_buffs",
 ]
 const DAMAGE_RESULT_KEYS := [
 	"dealt", "blocked", "died", "crit", "damage_context", "death_context",
@@ -133,10 +133,29 @@ static func _commit(request: Dictionary, ports: Variant, prepared: Dictionary) -
 				var sp_field := "sp" if defender["side"] == "ally" else "enemy_sp"
 				var available := float(state[sp_field])
 				if available > float(state["counter_threshold"]):
-					# This is an automatic M2 hit reaction with a fixed Web cost, not
-					# an M3 card payment. Canonical battle state is the sole authority.
 					state[sp_field] = available - 1.0
 					steps.append("counter_sp_spent")
+					if defender["side"] == "ally":
+						var spent_effect := ContextsScript.create_effect_context({
+							"source_type": "counter", "source_id": "superCounter",
+							"source_name": "超级反击", "source_side": "ally",
+							"source_actor_id": defender["id"],
+							"spent_skill_points": true, "counts_as_attack": true,
+						}, errors)
+						if spent_effect.is_empty():
+							return _failure("counter SP event context failed", steps, errors)
+						var spent: Dictionary = ports.call_action("emit_content_event", {
+							"event_id": "skillPointSpent",
+							"payload": {
+								"round": state["round"], "amount": 1,
+								"source_side": "ally", "attacker_id": attacker["id"],
+								"defender_id": defender["id"], "source_effect": spent_effect,
+							},
+						})
+						if not spent["ok"]:
+							return _failure(
+								"counter SP-spent event failed: %s" % spent["error"], steps, [],
+							)
 					super_counter = true
 
 			var ratio: float = (
@@ -267,8 +286,14 @@ static func _preflight(request: Variant, ports: Variant) -> Dictionary:
 		return CombatPortsScript.fail("primary_hit target identity must match defender")
 	if hit["damage_context"]["effect"]["source_side"] != attacker["side"]:
 		return CombatPortsScript.fail("primary_hit source side must match attacker")
-	if bool(hit["died"]) != (not bool(defender["alive"])):
-		return CombatPortsScript.fail("primary_hit death flag must match defender state")
+	if typeof(request["defender_alive_after_primary_hit"]) != TYPE_BOOL:
+		return CombatPortsScript.fail("primary hit defender snapshot must be boolean")
+	# `primary_hit` is historical B0 output. Content hooks intentionally run
+	# between the primary damage and this reaction and may kill the defender, so
+	# compare it with the captured immediate post-hit state, not mutable current
+	# state. The current defender remains authoritative for reaction guards.
+	if bool(hit["died"]) != (not bool(request["defender_alive_after_primary_hit"])):
+		return CombatPortsScript.fail("primary_hit death flag must match its post-hit defender snapshot")
 
 	var buffs: Variant = ports.service("buffs", errors)
 	var damage: Variant = ports.service("damage", errors)

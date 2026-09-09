@@ -1,0 +1,30 @@
+extends RefCounted
+
+const TestHarness = preload("res://tests/support/test_harness.gd")
+const HeroItemScene = preload("res://scenes/battle/hero_energy_item.tscn")
+
+func run(harness: TestHarness) -> void:
+	harness.run_test("enemy portrait node switches independently from ally portrait fallback", func() -> void:
+		var item := HeroItemScene.instantiate()
+		Engine.get_main_loop().root.add_child(item)
+		item.bind_hero({"id": 101, "name": "敌·军令", "side": "enemy", "energy": 0, "max_energy": 100})
+		harness.assert_true(item.enemy_portrait.visible)
+		harness.assert_false(item.portrait.visible)
+		harness.assert_false(item.placeholder.visible)
+		harness.assert_true(item.name_label.visible)
+		harness.assert_equal(item.enemy_portrait.archetype(), "commander")
+		item.bind_hero({"id": 6, "name": "宁不凡", "side": "ally", "energy": 0, "max_energy": 100})
+		harness.assert_false(item.enemy_portrait.visible)
+		harness.assert_true(item.portrait.visible)
+		item.bind_hero({"id": 102, "name": "敌·铁卫", "side": "enemy", "energy": 0, "max_energy": 100})
+		harness.assert_true(item.enemy_portrait.visible)
+		harness.assert_false(item.portrait.visible)
+		harness.assert_equal(item.enemy_portrait.archetype(), "guardian")
+		item.bind_hero({"id": 103, "name": "敌·千机", "side": "enemy", "energy": 0, "max_energy": 120})
+		harness.assert_equal(item.enemy_portrait.archetype(), "puppet")
+		item.bind_hero({"id": 999, "name": "备用", "side": "ally", "energy": 0, "max_energy": 100})
+		harness.assert_false(item.enemy_portrait.visible)
+		harness.assert_true(item.placeholder.visible)
+		harness.assert_false(item.name_label.visible)
+		item.free()
+	)

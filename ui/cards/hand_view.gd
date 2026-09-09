@@ -19,12 +19,16 @@ signal play_card_requested(command: Dictionary)
 var _cards_by_instance: Dictionary = {}
 var _ordered_instance_ids: Array[String] = []
 var _drag_origins: Dictionary = {}
+var _release_poses: Dictionary = {}
 var _queue_busy := false
 var _fatal := false
 var _session_halted := false
 var _battle_phase := "player_input"
 var _last_layout_scale := 1.0
 var _last_unscaled_spacing := 0.0
+var _queued_instance_ids: Dictionary = {}
+var _queued_positions: Dictionary = {}
+var _returning_instance_ids: Dictionary = {}
 
 
 func _ready() -> void:
@@ -47,6 +51,65 @@ func apply_view_model(view_model: Dictionary) -> void:
 
 func set_queue_busy(busy: bool) -> void:
 	_queue_busy = busy
+	_refresh_interaction_locks()
+
+
+func set_queued_instance_ids(instance_ids: Array) -> void:
+	_queued_instance_ids.clear()
+	for instance_id: Variant in instance_ids:
+		_queued_instance_ids[str(instance_id)] = true
+	for instance_id: String in _ordered_instance_ids.duplicate():
+		if _queued_instance_ids.has(instance_id):
+			var card: Variant = _cards_by_instance.get(instance_id)
+			if not _queued_positions.has(instance_id):
+				_queued_positions[instance_id] = _ordered_instance_ids.find(instance_id)
+			_ordered_instance_ids.erase(instance_id)
+			if card != null:
+				card.visible = false
+	for instance_id: Variant in _queued_positions.keys():
+		if not _queued_instance_ids.has(instance_id):
+			_queued_positions.erase(instance_id)
+			_returning_instance_ids.erase(instance_id)
+	layout_cards(animate_layout)
+
+
+## Restores a successful return-on-play card as the hidden target for the
+## settlement queue's flight. The instance remains queued for input purposes
+## until presentation completes, so it cannot be submitted a second time.
+func prepare_queued_return(instance_id: String) -> Variant:
+	if not _queued_instance_ids.has(instance_id):
+		return null
+	var card: Variant = _cards_by_instance.get(instance_id)
+	if card == null:
+		return null
+	_returning_instance_ids[instance_id] = true
+	if not _ordered_instance_ids.has(instance_id):
+		var original_index := int(_queued_positions.get(instance_id, _ordered_instance_ids.size()))
+		var restored_index := clampi(original_index, 0, _ordered_instance_ids.size())
+		_ordered_instance_ids.insert(restored_index, instance_id)
+		_card_container.move_child(card, clampi(restored_index, 0, _card_container.get_child_count() - 1))
+	card.visible = false
+	layout_cards(false)
+	return card
+
+
+## Keep already-visible cards responsive to authoritative prerequisite/cost
+## changes while a prior card's presentation is still playing.  This never
+## creates cards or applies unrelated battle/HP snapshots.
+func refresh_visible_availability(authoritative_hand: Array) -> void:
+	var by_instance: Dictionary = {}
+	for value: Variant in authoritative_hand:
+		if typeof(value) == TYPE_DICTIONARY:
+			by_instance[str(value.get("instance_id", ""))] = value
+	for instance_id: String in _ordered_instance_ids:
+		var card: Variant = _cards_by_instance.get(instance_id)
+		var current: Dictionary = by_instance.get(instance_id, {})
+		if card == null or current.is_empty():
+			continue
+		var shown: Dictionary = card.view_model()
+		for field: String in ["playable", "effective_cost", "unavailable_reason"]:
+			shown[field] = current.get(field, shown.get(field))
+		card.bind_card(shown)
 	_refresh_interaction_locks()
 
 
@@ -166,7 +229,11 @@ func _sync_cards(hand_vm: Array) -> void:
 			continue
 		var card_vm: Dictionary = card_value
 		var instance_id := str(card_vm.get("instance_id", ""))
-		if instance_id.is_empty() or desired_lookup.has(instance_id):
+		if (
+			instance_id.is_empty()
+			or desired_lookup.has(instance_id)
+			or (_queued_instance_ids.has(instance_id) and not _returning_instance_ids.has(instance_id))
+		):
 			continue
 		desired_ids.append(instance_id)
 		desired_lookup[instance_id] = card_vm
@@ -238,6 +305,7 @@ func _on_card_drag_finished(card: Control, pointer_global: Vector2) -> void:
 	_drag_origins.erase(instance_id)
 	var crossed_threshold := origin.y - pointer_global.y >= drag_play_threshold
 	if crossed_threshold and _can_issue_for(card):
+		_release_poses[instance_id] = {"position": card.global_position, "rotation": card.rotation, "scale": card.scale}
 		var vm: Dictionary = card.view_model()
 		play_card_requested.emit({
 			"type": "play_card",
@@ -247,6 +315,12 @@ func _on_card_drag_finished(card: Control, pointer_global: Vector2) -> void:
 			"owner_hero_id": vm.get("owner_hero_id"),
 		})
 	card.cancel_drag(animate_layout)
+
+
+func take_release_pose(instance_id: String) -> Dictionary:
+	var pose: Dictionary = _release_poses.get(instance_id, {}).duplicate(true)
+	_release_poses.erase(instance_id)
+	return pose
 
 
 func _can_issue_for(card: Control) -> bool:

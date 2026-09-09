@@ -22,6 +22,9 @@ class CommandError extends RefCounted:
 		message = error_message
 
 
+const CHECKPOINT_VERSION := 1
+const CHECKPOINT_KEYS := ["version", "source_state", "replay_queue"]
+
 var _source: Variant
 var _valid := false
 var _active_token: TransactionToken
@@ -188,6 +191,88 @@ func replay_count() -> int:
 	return _replay_queue.size()
 
 
+func export_checkpoint(errors: Array[String] = []) -> Dictionary:
+	errors.clear()
+	if not _valid:
+		errors.append("Run random adapter is invalid")
+		return {}
+	if _active_token != null:
+		errors.append("cannot checkpoint an active Run random transaction")
+		return {}
+	if not _source.has_method("state_snapshot"):
+		errors.append("Run random source does not expose a restorable state")
+		return {}
+	var source_state: Variant = _source.state_snapshot()
+	if not _is_uint32(source_state):
+		errors.append("Run random source state must be an unsigned 32-bit integer")
+		return {}
+	var serialized_replay: Array[String] = []
+	for value: Variant in _replay_queue:
+		if not _is_random_value(value):
+			errors.append("Run random replay queue contains an invalid value")
+			return {}
+		serialized_replay.append(String.num(float(value), 17))
+	return {
+		"version": CHECKPOINT_VERSION,
+		"source_state": source_state,
+		"replay_queue": serialized_replay,
+	}
+
+
+static func restore_checkpoint(
+	checkpoint: Variant,
+	source: Variant,
+	errors: Array[String] = [],
+) -> Variant:
+	errors.clear()
+	if not _has_checkpoint_shape(checkpoint):
+		errors.append("Run random checkpoint must be a closed version-1 Dictionary")
+		return null
+	var normalized_version: Variant = _normalized_integer(checkpoint["version"])
+	var normalized_source_state: Variant = _normalized_integer(checkpoint["source_state"])
+	if normalized_version != CHECKPOINT_VERSION:
+		errors.append("unsupported Run random checkpoint version")
+		return null
+	if not _is_uint32(normalized_source_state):
+		errors.append("Run random checkpoint source_state must be an unsigned 32-bit integer")
+		return null
+	if (
+		typeof(source) != TYPE_OBJECT
+		or source == null
+		or not source.has_method("next")
+		or not source.has_method("state_snapshot")
+	):
+		errors.append("Run random restore requires a stateful random source")
+		return null
+	var actual_state: Variant = source.state_snapshot()
+	if actual_state != normalized_source_state:
+		errors.append("Run random source state does not match its checkpoint")
+		return null
+	var raw_replay: Variant = checkpoint["replay_queue"]
+	if typeof(raw_replay) != TYPE_ARRAY:
+		errors.append("Run random checkpoint replay_queue must be an Array")
+		return null
+	var replay: Array[float] = []
+	for encoded_value: Variant in raw_replay:
+		if (
+			typeof(encoded_value) != TYPE_STRING
+			or encoded_value != encoded_value.strip_edges()
+			or not encoded_value.is_valid_float()
+		):
+			errors.append("Run random checkpoint replay_queue contains an invalid value")
+			return null
+		var value := float(encoded_value)
+		if not _is_random_value(value):
+			errors.append("Run random checkpoint replay_queue contains an invalid value")
+			return null
+		replay.append(value)
+	var restored := TransactionalRunRandom.new(source, errors)
+	if not errors.is_empty() or not restored.is_valid():
+		return null
+	restored._replay_queue = replay
+	return restored
+
+
 func _result_rejection(result: Variant) -> String:
 	if result is CommandError:
 		return result.message
@@ -221,10 +306,31 @@ func _fault(message: String) -> void:
 		_active_fault = message
 
 
-func _is_random_value(value: Variant) -> bool:
+static func _is_random_value(value: Variant) -> bool:
 	return (
 		(typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT)
 		and is_finite(float(value))
 		and float(value) >= 0.0
 		and float(value) < 1.0
 	)
+
+
+static func _has_checkpoint_shape(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or value.size() != CHECKPOINT_KEYS.size():
+		return false
+	for key: String in CHECKPOINT_KEYS:
+		if not value.has(key):
+			return false
+	return true
+
+
+static func _normalized_integer(value: Variant) -> Variant:
+	if typeof(value) == TYPE_INT:
+		return value
+	if typeof(value) == TYPE_FLOAT and is_finite(value) and value == floor(value):
+		return int(value)
+	return null
+
+
+static func _is_uint32(value: Variant) -> bool:
+	return typeof(value) == TYPE_INT and value >= 0 and value <= 0xffffffff

@@ -260,6 +260,7 @@ static func _resolve_strike(
 	var dealt := 0.0
 	var primary_died := false
 	var strikes := 0
+	var presentation_action_started := false
 	for target: Dictionary in targets:
 		if not target["alive"]:
 			continue
@@ -289,12 +290,21 @@ static func _resolve_strike(
 		var hit: Variant = prepared["damage"].apply(target, damage_context, {
 			"attacker_unit": attacker, "damage_kind": damage_kind,
 			"parent_source_effect": ContextsScript.snapshot(request["source_effect"]),
+			# UI-only boundary: only this strike's first live target starts an
+			# action. Additional column targets reuse its presentation action.
+			# This never enters damage/effect contexts.
+			"presentation_starts_action": not presentation_action_started,
 		}, effect_errors)
 		if not _valid_damage_result(hit):
 			return _failure("piece attack damage failed", steps, effect_errors)
+		presentation_action_started = true
 		steps.append("damage:%s" % str(target["id"]))
 		dealt += float(hit["dealt"])
 		strikes += 1
+		# Damage.apply emits content hooks before it returns; those hooks can deal
+		# follow-up damage and mutate `target` already. The B0 result is therefore
+		# the sole stable snapshot of the primary hit's own death outcome.
+		var defender_alive_after_primary_hit: bool = not bool(hit["died"])
 
 		var event_payload := {
 			"actor": attacker, "target": target, "amount": hit["dealt"],
@@ -318,6 +328,7 @@ static func _resolve_strike(
 			"state": request["state"], "attacker_side": attacker["side"],
 			"attacker_id": attacker["id"], "defender_side": target["side"],
 			"defender_id": target["id"], "primary_hit": hit,
+			"defender_alive_after_primary_hit": defender_alive_after_primary_hit,
 			"permanent_buffs": request["permanent_buffs"],
 		}, ports)
 		if not reaction["ok"]:

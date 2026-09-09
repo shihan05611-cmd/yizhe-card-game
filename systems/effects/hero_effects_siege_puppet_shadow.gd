@@ -14,6 +14,7 @@ const TuningValueDefinition = preload("res://data/definitions/tuning_value_defin
 ## roll back damage or Buff mutations that an injected service already committed.
 
 const EX_SIEGE := "battle.castExclusiveSkill.siege"
+const EX_PRESS_OPENING := "battle.castExclusiveSkill.pressOpening"
 const EX_PUPPET := "battle.castExclusiveSkill.puppet"
 const EX_SHADOW := "battle.castExclusiveSkill.shadow"
 const ULT_SIEGE := "battle.castUltimateByHero.siege"
@@ -35,6 +36,8 @@ const PUPPET_HP := 100.0
 
 static func handler_map() -> Dictionary:
 	return {
+		EX_PRESS_OPENING: func(context: Dictionary, ports: Variant) -> Dictionary:
+			return _execute("pressOpening", false, context, ports),
 		EX_SIEGE: func(context: Dictionary, ports: Variant) -> Dictionary:
 			return _execute("siege", false, context, ports),
 		EX_PUPPET: func(context: Dictionary, ports: Variant) -> Dictionary:
@@ -58,7 +61,7 @@ static func is_usable(
 	errors: Array[String] = [],
 ) -> bool:
 	errors.clear()
-	if skill_id not in ["siege", "puppet", "shadow"]:
+	if skill_id not in ["siege", "puppet", "shadow", "pressOpening"]:
 		errors.append("unknown Siege/Puppet/Shadow hero skill id: %s" % str(skill_id))
 		return false
 	if typeof(is_ultimate) != TYPE_BOOL:
@@ -94,6 +97,8 @@ static func _execute(
 				return _shadow_ultimate(context, ports)
 	else:
 		match skill_id:
+			"pressOpening":
+				return _press_opening_exclusive(context, ports)
 			"siege":
 				return _siege_exclusive(context, ports)
 			"puppet":
@@ -124,6 +129,17 @@ static func _is_usable_validated(
 		# Player Web treats an already-wiped opposing team as the successful
 		# post-damage early-return case; all-living-stealthed is still unusable.
 		return not lockable.is_empty() or TargetingRulesScript.alive(state, opposing, errors).is_empty()
+	if skill_id == "pressOpening":
+		var opposing := _other_side(side)
+		var buffs: Variant = ports.service("buffs", errors)
+		if not _preflight_unit_buff(buffs, _team(state, opposing), BREAK_MARKED_ID, errors):
+			return false
+		for unit: Dictionary in _team(state, opposing):
+			if unit["alive"] and buffs.has_unit(unit, BREAK_MARKED_ID):
+				for ally: Dictionary in _alive_non_puppets(state, side):
+					if ally["alive"]:
+						return true
+		return false
 	if skill_id == "puppet":
 		return _dead_slots(state, side).size() > 0
 	if skill_id == "shadow":
@@ -140,6 +156,38 @@ static func _is_usable_validated(
 				eligible = true
 		return eligible and stealth_count < maxi(0, non_puppets.size() - 1)
 	return false
+
+
+static func _press_opening_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
+	var state: Dictionary = context["state"]
+	var side := str(context["source_effect"]["source_side"])
+	var opposing := _other_side(side)
+	var errors: Array[String] = []
+	var buffs: Variant = ports.service("buffs", errors)
+	if not errors.is_empty():
+		return CombatPortsScript.fail("pressOpening buffs service failed%s" % _error_suffix(errors))
+	var marked := false
+	for unit: Dictionary in _team(state, opposing):
+		if unit["alive"] and buffs.has_unit(unit, BREAK_MARKED_ID):
+			marked = true
+			break
+	if not marked:
+		return CombatPortsScript.fail("pressOpening requires a living enemy with breakMarked")
+	var target: Variant = null
+	for ally: Dictionary in _alive_non_puppets(state, side):
+		if target == null or float(ally["atk"]) > float(target["atk"]) or (
+			is_equal_approx(float(ally["atk"]), float(target["atk"])) and (
+				int(ally["slot"]) < int(target["slot"]) or (
+					int(ally["slot"]) == int(target["slot"]) and int(ally["id"]) < int(target["id"])
+				)
+			)
+		):
+			target = ally
+	if target == null:
+		return CombatPortsScript.fail("pressOpening requires a living non-puppet ally")
+	if not buffs.apply_unit(target, "pursuit", 2, null, errors):
+		return CombatPortsScript.fail("pressOpening pursuit application failed%s" % _error_suffix(errors))
+	return CombatPortsScript.ok({"skill_id": "pressOpening", "applied": true, "target_id": target["id"], "target_slot": target["slot"], "stacks": 2})
 
 
 static func _siege_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
@@ -490,7 +538,7 @@ static func _validate_context(
 	if canonical == null or not is_same(caster, canonical):
 		errors.append("hero effect caster must be the matching canonical state hero reference")
 		return false
-	if caster["ex_skill"] != skill_id:
+	if caster["ex_skill"] != skill_id and not (skill_id == "pressOpening" and caster["ex_skill"] == "siege"):
 		errors.append("hero effect caster.ex_skill does not match handler")
 		return false
 	if effect["source_side"] == "ally" and caster["deployed"] != true:

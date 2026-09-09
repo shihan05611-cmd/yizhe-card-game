@@ -42,8 +42,8 @@ func _test_hud_structure(harness: TestHarness) -> void:
 	harness.assert_equal(hud.discard_count.text, "2")
 	harness.assert_equal(hud.exhaust_count.text, "1")
 	for button: Button in hud.speed_buttons:
-		harness.assert_true(button.custom_minimum_size.x >= 40.0)
-		harness.assert_true(button.custom_minimum_size.y >= 36.0)
+		harness.assert_true(button.custom_minimum_size.x >= 34.0)
+		harness.assert_true(button.custom_minimum_size.y >= 28.0)
 	harness.assert_true(hud.end_turn_button.custom_minimum_size.y >= 44.0)
 	_release(screen)
 

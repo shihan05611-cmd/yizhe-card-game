@@ -10,6 +10,9 @@ const HandManagerScript = preload("res://autoload/hand_manager.gd")
 const ContentCatalogScript = preload("res://data/catalogs/content_catalog.gd")
 const RngScript = preload("res://core/rng.gd")
 const ContextsScript = preload("res://core/contexts.gd")
+const StatsScript = preload("res://core/stats.gd")
+const PieceReactionsScript = preload("res://systems/combat/piece_reactions.gd")
+const BattleBootstrapScript = preload("res://app/battle_bootstrap.gd")
 
 
 func run(harness: TestHarness) -> void:
@@ -18,6 +21,12 @@ func run(harness: TestHarness) -> void:
 	)
 	harness.run_test("M5 Run trigger relic actions execute through the live combat graph", func() -> void:
 		_test_trigger_relic_actions(harness)
+	)
+	harness.run_test("M5 paid card drives Arc Conductor through the live adapter and can kill the last enemies", func() -> void:
+		_test_arc_conductor_from_paid_card(harness)
+	)
+	harness.run_test("M5 paid super counter triggers Arc Conductor before safely hitting a dead attacker", func() -> void:
+		_test_arc_conductor_from_super_counter(harness)
 	)
 	harness.run_test("M5 Run victory atomically commits HP growth and enters reward", func() -> void:
 		_test_victory_commit(harness)
@@ -31,6 +40,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("M5 bridge preserves the frozen M4 direct battle config", func() -> void:
 		_test_direct_battle_compatibility(harness)
 	)
+	harness.run_test("Run enemy Yizhes progress from 军令 to 铁卫 to 千机 by chapter", func() -> void:
+		_test_run_enemy_yizhe_layers(harness)
+	)
 
 
 func _test_launch_projection(harness: TestHarness) -> void:
@@ -39,7 +51,7 @@ func _test_launch_projection(harness: TestHarness) -> void:
 	state["free_skill_ids"] = ["smallHeal", "smallHeal", "pieceBlock"]
 	state["relic_ids"] = ["spLimitPlus", "shieldPlus", "crossbowPlus", "shentongAssaultBurst", "shentongChargeOverload"]
 	state["piece_slots"][0]["hp_ratio"] = 0.0
-	state["piece_slots"][1]["hp_ratio"] = 0.5
+	state["piece_slots"][3]["hp_ratio"] = 0.5
 	var started := _start_adapter(fixture, harness)
 	if not started["result"].ok:
 		return
@@ -52,16 +64,14 @@ func _test_launch_projection(harness: TestHarness) -> void:
 	harness.assert_equal(runtime_state["sp_max"], 11.0)
 	harness.assert_equal(runtime_state["allies"][0]["hp"], 0.0)
 	harness.assert_false(runtime_state["allies"][0]["alive"])
-	harness.assert_equal(runtime_state["allies"][1]["hp"], roundf(runtime_state["allies"][1]["max_hp"] * 0.5))
+	harness.assert_equal(runtime_state["allies"][3]["hp"], roundf(runtime_state["allies"][3]["max_hp"] * 0.5))
 	harness.assert_equal(runtime_state["allies"].map(func(unit: Dictionary) -> String:
 		return unit["class_id"]
-	), ["shield", "shield", "shield", "assassin", "crossbow", "banner"])
-	harness.assert_equal(runtime_state["allies"][1]["max_hp"], 450.0)
-	harness.assert_equal(runtime_state["allies"][1]["atk"], 24.0)
-	harness.assert_true(is_equal_approx(runtime_state["allies"][1]["base_block_rate"], 0.15))
+	), ["default", "shield", "default", "assassin", "crossbow", "banner"])
 	harness.assert_equal(runtime_state["allies"][3]["max_hp"], 240.0)
 	harness.assert_equal(runtime_state["allies"][3]["atk"], 42.0)
 	harness.assert_true(is_equal_approx(runtime_state["allies"][3]["crit_rate"], 0.15))
+	harness.assert_false(runtime_state["allies"][2]["alive"], "empty slot is not a dead deployed piece")
 	harness.assert_equal(runtime_state["allies"][4]["max_hp"], 280.0)
 	harness.assert_equal(runtime_state["allies"][4]["atk"], 30.0)
 	harness.assert_equal(runtime_state["allies"][5]["max_hp"], 360.0)
@@ -83,6 +93,7 @@ func _test_launch_projection(harness: TestHarness) -> void:
 	)
 	var shield: Dictionary = runtime_state["allies"][1]
 	shield["hp"] = shield["max_hp"] - 100.0
+	shield["alive"] = true
 	shield["base_block_rate"] = 1.0
 	var block_errors: Array[String] = []
 	var block_effect := ContextsScript.create_effect_context({
@@ -126,7 +137,9 @@ func _test_trigger_relic_actions(harness: TestHarness) -> void:
 		return
 	var controller: Variant = started["adapter"].controller()
 	var battle_state: Dictionary = controller._runtime.component("state")
-	var target: Dictionary = battle_state["allies"][0]
+	# The final four-unit Run formation keeps slot 1 empty; the shield occupies
+	# slot 2 and is the live target for the relic-heal integration path.
+	var target: Dictionary = battle_state["allies"][1]
 	var errors: Array[String] = []
 	var effect := ContextsScript.create_effect_context({
 		"source_type": "basic_attack", "source_id": "test_attack",
@@ -160,6 +173,146 @@ func _test_trigger_relic_actions(harness: TestHarness) -> void:
 	started["manager"].free()
 
 
+func _test_arc_conductor_from_paid_card(harness: TestHarness) -> void:
+	var fixture := _fighting_fixture("m5-05-arc-conductor-card", harness)
+	var state: Dictionary = fixture["state"]
+	state["free_skill_ids"] = ["pieceDamageUp", "pieceBlock"]
+	state["relic_ids"] = ["arcConductor"]
+	var started := _start_adapter(fixture, harness)
+	if not started["result"].ok:
+		return
+	var controller: Variant = started["adapter"].controller()
+	var battle_state: Dictionary = controller._runtime.component("state")
+	var card_id := ""
+	for card: Dictionary in controller.view_model()["hand"]:
+		if card["source_skill_id"] == "pieceDamageUp":
+			card_id = card["instance_id"]
+			break
+	harness.assert_false(card_id.is_empty(), "paid fixture card must be in the opening hand")
+	if card_id.is_empty():
+		started["manager"].free()
+		return
+
+	var expected_damage := roundf(
+		StatsScript.team_average_atk(battle_state, "ally") * 0.6 * 10.0
+	) / 10.0
+	var targets: Array[Dictionary] = []
+	for enemy: Dictionary in battle_state["enemies"]:
+		if not enemy["alive"]:
+			continue
+		enemy["base_block_rate"] = 0.0
+		enemy["hp"] = expected_damage
+		targets.append(enemy)
+	harness.assert_true(targets.size() > 0)
+	var events_before: int = controller.presentation_events().size()
+	var result: Variant = controller.play_card(card_id)
+	harness.assert_true(result.ok, result.message)
+	harness.assert_equal(result.details["actual_cost"], 1)
+	harness.assert_equal(battle_state["sp"], 9.0)
+	for enemy: Dictionary in targets:
+		harness.assert_equal(enemy["hp"], 0.0)
+		harness.assert_false(enemy["alive"])
+
+	var arc_damage_events: Array[Dictionary] = []
+	var arc_death_events: Array[Dictionary] = []
+	for event: Dictionary in controller.presentation_events().slice(events_before):
+		if event["source"].get("id") != "arcConductor":
+			continue
+		if event["event_id"] == "unit_damaged":
+			arc_damage_events.append(event)
+		elif event["event_id"] == "unit_died":
+			arc_death_events.append(event)
+	harness.assert_equal(arc_damage_events.size(), targets.size())
+	harness.assert_equal(arc_death_events.size(), targets.size())
+	for event: Dictionary in arc_damage_events:
+		harness.assert_equal(event["source"]["type"], "relic")
+		harness.assert_equal(event["source"]["side"], "ally")
+		harness.assert_equal(event["payload"]["amount"], expected_damage)
+		harness.assert_equal(event["payload"]["damage_context"]["raw_amount"], expected_damage)
+		harness.assert_equal(event["payload"]["damage_context"]["effect"]["source_id"], "arcConductor")
+		harness.assert_true(event["payload"]["died"])
+	for enemy: Dictionary in targets:
+		harness.assert_true(arc_damage_events.any(func(event: Dictionary) -> bool:
+			return event["visual_target"]["unit_id"] == enemy["id"]
+		))
+		harness.assert_true(arc_death_events.any(func(event: Dictionary) -> bool:
+			return event["visual_target"]["unit_id"] == enemy["id"] \
+				and event["payload"]["death_context"]["effect"]["source_id"] == "arcConductor"
+		))
+	harness.assert_equal(controller.view_model()["fatal"], null)
+	harness.assert_true(
+		card_id in started["manager"].session_snapshot()["hand"]["piles"]["discard"],
+		"lethal Arc Conductor damage must not strand the successfully played card",
+	)
+	started["manager"].free()
+
+
+func _test_arc_conductor_from_super_counter(harness: TestHarness) -> void:
+	var fixture := _fighting_fixture("m5-05-arc-conductor-counter", harness)
+	fixture["state"]["relic_ids"] = ["arcConductor"]
+	var started := _start_adapter(fixture, harness)
+	if not started["result"].ok:
+		return
+	var controller: Variant = started["adapter"].controller()
+	var battle_state: Dictionary = controller._runtime.component("state")
+	var attacker: Dictionary = battle_state["enemies"].filter(func(unit: Dictionary) -> bool:
+		return unit["alive"]
+	)[0]
+	var defender: Dictionary = battle_state["allies"].filter(func(unit: Dictionary) -> bool:
+		return unit["alive"]
+	)[0]
+	for hero: Dictionary in battle_state["player_heroes"]:
+		hero["deployed"] = hero["ex_skill"] == "counterAura"
+	battle_state["sp"] = 5.0
+	attacker["base_block_rate"] = 0.0
+	attacker["hp"] = roundf(
+		StatsScript.team_average_atk(battle_state, "ally") * 0.6 * 10.0
+	) / 10.0
+	var context_errors: Array[String] = []
+	var attack_effect := ContextsScript.create_effect_context({
+		"source_type": "basic_attack", "source_id": "counter_trigger_probe",
+		"source_name": "反击触发探针", "source_side": "enemy",
+		"source_actor_id": attacker["id"], "counts_as_basic_attack": true,
+		"counts_as_attack": true,
+	}, context_errors)
+	var primary_context := ContextsScript.create_damage_context({
+		"target_id": defender["id"], "raw_amount": 1.0, "category": "direct",
+		"effect": attack_effect, "dealer_type": "piece", "dealer_name": "反击触发探针",
+		"dealer_id": attacker["id"], "attacker_unit_id": attacker["id"],
+		"can_crit": false, "crit_rate": 0.0, "guaranteed_crit": false, "can_block": true,
+	}, context_errors)
+	harness.assert_equal(context_errors, [])
+	var events_before: int = controller.presentation_events().size()
+	var result: Dictionary = PieceReactionsScript.resolve({
+		"state": battle_state,
+		"attacker_side": "enemy", "attacker_id": attacker["id"],
+		"defender_side": "ally", "defender_id": defender["id"],
+		"primary_hit": {
+			"dealt": 1.0, "blocked": true, "died": false, "crit": false,
+			"damage_context": primary_context, "death_context": null,
+		},
+		"defender_alive_after_primary_hit": true,
+		"permanent_buffs": [],
+	}, controller._runtime.component("ports"))
+	harness.assert_true(result["ok"], result.get("error", ""))
+	harness.assert_equal(result["value"]["counter_kind"], "super")
+	harness.assert_equal(result["value"]["counter_dealt"], 0.0)
+	harness.assert_equal(battle_state["sp"], 4.0)
+	harness.assert_equal(attacker["hp"], 0.0)
+	harness.assert_false(attacker["alive"])
+	var new_events: Array[Dictionary] = controller.presentation_events().slice(events_before)
+	harness.assert_equal(new_events.filter(func(event: Dictionary) -> bool:
+		return event["event_id"] == "skillPointSpent"
+	).size(), 1)
+	harness.assert_equal(new_events.filter(func(event: Dictionary) -> bool:
+		return event["event_id"] == "unit_died" \
+			and event["source"].get("id") == "arcConductor" \
+			and event["visual_target"].get("unit_id") == attacker["id"]
+	).size(), 1)
+	harness.assert_equal(controller.view_model()["fatal"], null)
+	started["manager"].free()
+
+
 func _test_victory_commit(harness: TestHarness) -> void:
 	var fixture := _fighting_fixture("m5-05-victory", harness)
 	var state: Dictionary = fixture["state"]
@@ -180,8 +333,8 @@ func _test_victory_commit(harness: TestHarness) -> void:
 	harness.assert_true(growth_result["ok"], growth_result.get("error", ""))
 	for index in battle_state["allies"].size():
 		var unit: Dictionary = battle_state["allies"][index]
-		unit["hp"] = 0.0 if index == 0 else float(unit["max_hp"]) * 0.25
-		unit["alive"] = index != 0
+		unit["hp"] = 0.0 if index == 1 else float(unit["max_hp"]) * 0.25
+		unit["alive"] = index != 1
 	battle_state["game_over"] = true
 	battle_state["battle_result"] = "win"
 	var before_currency: int = state["currency"]
@@ -189,9 +342,8 @@ func _test_victory_commit(harness: TestHarness) -> void:
 	harness.assert_true(adapter.settle_if_terminal(errors), "; ".join(errors))
 	harness.assert_equal(state["status"], "reward")
 	harness.assert_equal(state["currency"], before_currency + 15)
-	harness.assert_equal(state["piece_slots"][0]["hp_ratio"], 0.0)
-	for index in range(1, 6):
-		harness.assert_equal(state["piece_slots"][index]["hp_ratio"], 0.25)
+	harness.assert_equal(state["piece_slots"][1]["hp_ratio"], 0.0)
+	harness.assert_equal(_piece_ratios(state), [1.0, 0.0, 1.0, 0.25, 0.25, 0.25])
 	harness.assert_equal(state["permanent_buffs"], [{
 		"id": "fistMastery", "target": {"type": "hero", "id": 6}, "stacks": 1,
 	}])
@@ -281,6 +433,29 @@ func _test_direct_battle_compatibility(harness: TestHarness) -> void:
 	manager.free()
 
 
+func _test_run_enemy_yizhe_layers(harness: TestHarness) -> void:
+	var errors: Array[String] = []
+	var catalogs := ContentCatalogScript.build(errors)
+	harness.assert_equal(errors, [])
+	for stage_id in ["counter", "burn", "core"]:
+		var definitions: Array = BattleBootstrapScript._enemy_yizhe_definitions(
+			{"stage_id": stage_id, "run_progress": true}, catalogs,
+			catalogs["stages"][stage_id], errors,
+		)
+		harness.assert_equal(errors, [])
+		var expected_ids: Array = BattleBootstrapScript.RUN_ENEMY_HERO_IDS_BY_STAGE[stage_id]
+		harness.assert_equal(definitions.map(func(enemy: Dictionary) -> Variant: return enemy["id"]), expected_ids)
+		harness.assert_equal(definitions.map(func(enemy: Dictionary) -> Variant: return enemy["name"]), [
+			"敌·军令", "敌·铁卫", "敌·千机",
+		].slice(0, expected_ids.size()))
+	# Direct stage selection still uses that stage's whole authored roster.
+	var direct: Array = BattleBootstrapScript._enemy_yizhe_definitions(
+		{"stage_id": "burn"}, catalogs, catalogs["stages"]["burn"], errors,
+	)
+	harness.assert_equal(errors, [])
+	harness.assert_equal(direct.map(func(enemy: Dictionary) -> Variant: return enemy["id"]), [201, 202, 203])
+
+
 func _fighting_fixture(seed: String, harness: TestHarness) -> Dictionary:
 	var errors: Array[String] = []
 	var catalogs := ContentCatalogScript.build(errors)
@@ -327,3 +502,7 @@ func _allies() -> Array:
 			"alive": true, "is_puppet": false,
 		})
 	return result
+
+
+func _piece_ratios(state: Dictionary) -> Array:
+	return state["piece_slots"].map(func(entry: Dictionary) -> float: return float(entry["hp_ratio"]))

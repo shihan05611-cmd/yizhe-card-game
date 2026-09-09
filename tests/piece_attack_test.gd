@@ -44,6 +44,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("extra actions and crossbow use canonical charges and combat RNG", func() -> void:
 		_test_extra_and_crossbow(harness)
 	)
+	harness.run_test("piece strikes expose presentation-only boundaries without changing combat contexts", func() -> void:
+		_test_presentation_strike_boundaries(harness)
+	)
 	harness.run_test("pursuit consumes bounded layers and retargets by lowest hp percent", func() -> void:
 		_test_pursuit(harness)
 	)
@@ -55,6 +58,9 @@ func run(harness: TestHarness) -> void:
 	)
 	harness.run_test("content events precede reactions and failures expose committed steps", func() -> void:
 		_test_reaction_order_and_failures(harness)
+	)
+	harness.run_test("content-hook follow-up death keeps the primary-hit snapshot historical", func() -> void:
+		_test_content_hook_followup_death(harness)
 	)
 	harness.run_test("single executeStrike plans are strict immutable one-shot values", func() -> void:
 		_test_single_plan(harness)
@@ -153,6 +159,42 @@ func _test_extra_and_crossbow(harness: TestHarness) -> void:
 	result = PieceAttackScript.execute(request, plus["ports"])
 	harness.assert_true(result["ok"])
 	harness.assert_equal(plus["buffs"].get_unit_stacks(attacker, "pursuit"), 1)
+
+
+func _test_presentation_strike_boundaries(harness: TestHarness) -> void:
+	var extra := _fixture()
+	_unit(extra["state"], "ally", 1)["extra_action_charges"] = 1
+	var result := PieceAttackScript.execute(_request(extra), extra["ports"])
+	harness.assert_true(result["ok"])
+	harness.assert_equal(_damage_action_starts(extra["damage_events"], "damage_applied"), [true, true])
+	result = PieceAttackScript.execute(_request(extra), extra["ports"])
+	harness.assert_true(result["ok"])
+	harness.assert_equal(_damage_action_starts(extra["damage_events"], "damage_applied"), [true, true, true], "a second execute starts a distinct action")
+
+	var crossbow := _fixture([0.99, 0.99, 0.99, 0.99, 0.99])
+	var crossbow_attacker := _unit(crossbow["state"], "ally", 1)
+	crossbow_attacker["class_id"] = "crossbow"
+	crossbow_attacker["extra_action_charges"] = 1
+	var crossbow_request := _request(crossbow)
+	crossbow_request["trigger_pursuit"] = false
+	result = PieceAttackScript.execute(crossbow_request, crossbow["ports"])
+	harness.assert_true(result["ok"])
+	harness.assert_equal(_damage_action_starts(crossbow["damage_events"], "damage_applied"), [true, true], "crossbow repeat shot starts a new action")
+
+	var march := _fixture()
+	var attacker := _unit(march["state"], "ally", 2)
+	attacker["general"] = true
+	march["buffs"].apply_unit(attacker, "march", 1)
+	result = PieceAttackScript.execute(_request(march, "ally", 2), march["ports"])
+	harness.assert_true(result["ok"])
+	harness.assert_equal(_damage_action_starts(march["damage_events"], "damage_applied"), [true, false])
+
+	var blocked := _fixture([0.99, 0.0])
+	_unit(blocked["state"], "enemy", 1)["base_block_rate"] = 1.0
+	result = PieceAttackScript.execute(_request(blocked), blocked["ports"])
+	harness.assert_true(result["ok"])
+	harness.assert_equal(_damage_action_starts(blocked["damage_events"], "damage_applied"), [true])
+	harness.assert_equal(_damage_action_starts(blocked["damage_events"], "unit_blocked"), [true])
 
 
 func _test_pursuit(harness: TestHarness) -> void:
@@ -270,6 +312,17 @@ func _test_reaction_order_and_failures(harness: TestHarness) -> void:
 	harness.assert_equal(damage_fail["state"], before)
 
 
+func _test_content_hook_followup_death(harness: TestHarness) -> void:
+	var fixture := _fixture([], [], "", false, false, true)
+	var result := PieceAttackScript.execute(_request(fixture), fixture["ports"])
+	var target := _unit(fixture["state"], "enemy", 1)
+	harness.assert_true(result["ok"], str(result))
+	harness.assert_false(target["alive"])
+	harness.assert_equal(_event_ids(fixture["events"]), ["pieceAttackHit", "basicAttackHit"])
+	harness.assert_true(result["value"]["primary_died"])
+	harness.assert_true("reactions:1" in result["value"]["steps"])
+
+
 func _test_single_plan(harness: TestHarness) -> void:
 	var fixture := _fixture()
 	_unit(fixture["state"], "enemy", 1)["hp"] = 12.0
@@ -350,6 +403,7 @@ func _fixture(
 	fail_event: String = "",
 	fail_record_heal: bool = false,
 	invalid_damage: bool = false,
+	kill_target_on_basic_attack: bool = false,
 ) -> Dictionary:
 	var state := _state()
 	var catalog_errors: Array[String] = []
@@ -363,6 +417,7 @@ func _fixture(
 	assert(buff_errors.is_empty())
 	var rng := FixedRng.new(rng_values)
 	var policy_rng := FixedRng.new()
+	var damage_events: Array[Dictionary] = []
 	var damage_errors: Array[String] = []
 	var damage := DamageScript.new({
 		"random": func() -> float: return rng.next(),
@@ -370,7 +425,8 @@ func _fixture(
 		"get_block_rate": func(unit: Dictionary, _context: Dictionary, _metadata: Dictionary) -> float: return unit["base_block_rate"],
 		"get_damage_multiplier": func(_unit: Dictionary, _context: Dictionary, _metadata: Dictionary) -> float:
 			return NAN if invalid_damage else 1.0,
-		"on_event": func(_type: String, _payload: Dictionary) -> void: pass,
+		"on_event": func(type: String, payload: Dictionary) -> void:
+			damage_events.append({"type": type, "payload": payload.duplicate(true)}),
 		"on_death": func(_unit: Dictionary, _context: Dictionary, _payload: Dictionary) -> void: pass,
 		"record_damage": func(_payload: Dictionary) -> void: pass,
 	}, damage_errors)
@@ -388,6 +444,23 @@ func _fixture(
 				event_burn_snapshots.append(buffs.get_unit_stacks(action_request["payload"]["target"], "burn"))
 				if event_id == fail_event:
 					return CombatPortsScript.fail("injected event failure")
+				if event_id == "basicAttackHit" and kill_target_on_basic_attack:
+					var hook_errors: Array[String] = []
+					var actor: Dictionary = action_request["payload"]["actor"]
+					var hook_context := ContextsScript.create_damage_context({
+						"target_id": action_request["payload"]["target"]["id"],
+						"raw_amount": 100.0, "category": "direct",
+						"effect": _effect("basic_attack", "normalAttack", actor["side"], actor["id"], false),
+						"dealer_type": "piece", "dealer_name": "测试钩子",
+						"dealer_id": actor["id"], "attacker_unit_id": actor["id"],
+						"can_crit": false, "crit_rate": 0.0,
+						"guaranteed_crit": false, "can_block": false,
+					}, hook_errors)
+					var hook_hit: Dictionary = damage.apply(
+						action_request["payload"]["target"], hook_context, {}, hook_errors
+					)
+					if not hook_errors.is_empty() or hook_hit.is_empty() or not hook_hit["died"]:
+						return CombatPortsScript.fail("injected hook follow-up damage failed")
 			if action_id == "record_heal" and fail_record_heal:
 				return CombatPortsScript.fail("injected heal record failure")
 			return CombatPortsScript.ok(null)
@@ -404,6 +477,7 @@ func _fixture(
 	return {
 		"state": state, "catalog": catalog, "buffs": buffs, "rng": rng,
 		"events": event_records, "event_burn_snapshots": event_burn_snapshots,
+		"damage_events": damage_events,
 		"ports": ports, "relic_system": _relic_system(catalog, owned_relics),
 	}
 
@@ -546,4 +620,12 @@ func _event_targets(events: Array, id: String) -> Array:
 	for item: Dictionary in events:
 		if item["id"] == id:
 			result.append(item["target_id"])
+	return result
+
+
+func _damage_action_starts(events: Array, event_id: String) -> Array:
+	var result: Array = []
+	for event: Dictionary in events:
+		if event["type"] == event_id:
+			result.append(bool(event["payload"].get("metadata", {}).get("presentation_starts_action", false)))
 	return result

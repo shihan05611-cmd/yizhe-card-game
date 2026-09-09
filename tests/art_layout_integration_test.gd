@@ -18,6 +18,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("ART integration keeps zero-hand state frameless and log toggle nonblocking", func() -> void:
 		_test_zero_hand_and_log(harness)
 	)
+	harness.run_test("ART integration keeps one to three hero portraits inside their side columns", func() -> void:
+		_test_hero_count_layout(harness)
+	)
 	print("ART LAYOUT INTEGRATION TESTS: tests=%d assertions=%d failures=%d" % [
 		harness.tests - before_tests,
 		harness.assertions - before_assertions,
@@ -81,6 +84,31 @@ func _test_zero_hand_and_log(harness: TestHarness) -> void:
 	harness.assert_false(log_slot.visible)
 	harness.assert_true(arena.size.x > 0)
 	_release(screen)
+
+
+func _test_hero_count_layout(harness: TestHarness) -> void:
+	for hero_count in range(1, 4):
+		var vm := _vm(5)
+		var heroes: Array[Dictionary] = []
+		for index in hero_count:
+			heroes.append({
+				"id": [1, 4, 8][index],
+				"name": ["赤焰", "骑士", "千机"][index],
+				"side": "ally",
+				"energy": 20 + index * 15,
+				"max_energy": 100,
+			})
+		vm["heroes"]["ally"] = heroes
+		var screen: Variant = _screen(Vector2(1200, 700), vm)
+		var panel: Control = screen.ally_heroes
+		var active_items: Array[Node] = screen.ally_heroes.item_nodes()
+		harness.assert_equal(active_items.size(), hero_count)
+		for item: Control in active_items:
+			harness.assert_true(item.visible)
+			harness.assert_true(item.get_rect().position.y >= -0.01)
+			harness.assert_true(item.get_rect().end.y <= panel.size.y + 0.01)
+			harness.assert_true(item.size.y >= 76.0)
+		_release(screen)
 
 
 static func _screen(window_size: Vector2, vm: Dictionary) -> Variant:

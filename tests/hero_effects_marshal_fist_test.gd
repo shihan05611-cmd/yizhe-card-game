@@ -40,6 +40,7 @@ class ControlledDamage:
 	var fail_at := 0
 	var calls := 0
 	var records: Array[Dictionary] = []
+	var metadata_records: Array[Dictionary] = []
 
 	func is_valid() -> bool:
 		return true
@@ -64,6 +65,7 @@ class ControlledDamage:
 			target["alive"] = false
 		var record: Dictionary = damage_context.duplicate(true)
 		records.append(record)
+		metadata_records.append(_metadata.duplicate(true))
 		return {
 			"dealt": dealt, "blocked": false, "died": died,
 			"crit": float(damage_context["crit_rate"]) >= 1.0,
@@ -288,6 +290,10 @@ func _test_fist_exclusive(harness: TestHarness) -> void:
 		harness.assert_equal(result["value"]["hits"], expected_targets)
 		harness.assert_equal(result["value"]["momentum_after"], mini(5, momentum + 1))
 		harness.assert_equal(damage.records.size(), expected_targets)
+		var expected_wave: Array[int] = []
+		for _target in expected_targets:
+			expected_wave.append(0)
+		harness.assert_equal(damage.metadata_records.map(func(value: Dictionary) -> Variant: return value.get("presentation_wave_index")), expected_wave, "宁不凡拳劲的同段多目标共享一个 presentation wave")
 		harness.assert_equal(
 			float(damage.records[0]["crit_rate"]), 0.05 + float(momentum) * 0.04,
 		)
@@ -370,6 +376,7 @@ func _test_fist_ultimate(harness: TestHarness) -> void:
 	harness.assert_equal(result["value"]["hits"], 8)
 	harness.assert_equal(caster["fist_momentum"], 4)
 	harness.assert_equal(run_state["permanent_buffs"][0]["stacks"], 5)
+	harness.assert_equal(damage.metadata_records.map(func(value: Dictionary) -> Variant: return value.get("presentation_wave_index")), range(0, int(result["value"]["hits"])), "宁不凡大招 gives every sequential strike its own presentation hit index")
 
 	var kill_state := _state()
 	for unit: Dictionary in kill_state["enemies"]:

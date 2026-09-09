@@ -123,7 +123,7 @@ func run(harness: TestHarness) -> void:
 
 func _test_handlers_and_m3_exclusion(harness: TestHarness) -> void:
 	var expected := [
-		EffectsScript.EX_PUPPET, EffectsScript.EX_SHADOW, EffectsScript.EX_SIEGE,
+		EffectsScript.EX_PRESS_OPENING, EffectsScript.EX_PUPPET, EffectsScript.EX_SHADOW, EffectsScript.EX_SIEGE,
 		EffectsScript.ULT_PUPPET, EffectsScript.ULT_SHADOW, EffectsScript.ULT_SIEGE,
 	]
 	expected.sort()

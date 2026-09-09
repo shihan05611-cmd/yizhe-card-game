@@ -139,7 +139,8 @@ func _test_counter_energy_route(harness: TestHarness) -> void:
 		"state": fixture["state"],
 		"attacker_side": "enemy", "attacker_id": attacker["id"],
 		"defender_side": "ally", "defender_id": defender["id"],
-		"primary_hit": hit, "permanent_buffs": [],
+		"primary_hit": hit, "defender_alive_after_primary_hit": true,
+		"permanent_buffs": [],
 	}, fixture["runtime"].component("ports"))
 	harness.assert_true(result["ok"], str(result))
 	harness.assert_equal(result["value"]["counter_kind"], "super")

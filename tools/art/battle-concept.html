@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>弈者 · 墨玉棋境</title>
+  <link rel="stylesheet" href="battle-concept.css">
+</head>
+<body>
+  <div id="viewport">
+    <main id="scene" aria-label="弈者战斗美术概念稿">
+      <svg class="landscape" viewBox="0 0 1600 900" aria-hidden="true"><g fill="none" stroke="currentColor"><path d="M-90 568Q110 475 206 542T494 484M-50 580Q138 491 216 550T500 495M1110 495Q1250 400 1394 480T1700 366M1108 509Q1255 418 1397 493T1700 382"/><path d="M-100 264 55 216 98 235 184 151 302 222 361 197 470 283M1140 283 1225 223 1257 237 1350 141 1480 251 1586 212 1680 278"/></g></svg>
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">弈</span><span class="brand-name">弈 者</span><i></i><span class="chapter">第一章<span>铁壁关</span></span></div>
+        <div class="round"><span class="round-rule"></span><span>第 <b id="round-number">三</b> 回合</span><span class="round-rule"></span><small id="phase">我方行动</small></div>
+        <nav class="tools" aria-label="概念稿控制"><div class="speed" aria-label="动画速度"><button class="active" data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button></div><button id="heroes-toggle" aria-pressed="false">三弈者</button><button id="hand-toggle" aria-pressed="false">满手预览</button><button id="log-open">战报 <span>≡</span></button><button class="reset" id="reset" aria-label="重置概念演示" title="重置概念演示">↺</button></nav>
+      </header>
+
+      <aside class="hero hero-ally" aria-label="我方弈者骑士">
+        <div class="side-label"><span></span>我方弈者<span></span></div>
+        <div class="portrait-stage"><div class="portrait-halo"></div><span class="portrait-script">守</span><img src="../../assets/portraits/qishi_lihui_transparent.png" alt="骑士，金发、铠甲与红围巾" draggable="false"></div>
+        <div class="hero-name"><span class="mini-seal">御</span><h1>骑士</h1></div><p class="hero-role">以身为盾，寸土不让。</p>
+        <div class="energy-heading"><span>能量</span><span><b>65</b> / 100</span></div><div class="energy-track"><i style="width:65%"></i></div>
+        <div class="passive"><span class="passive-icon">盾</span><div><strong>反击</strong><small>被动专属</small></div><span class="passive-dot"></span></div>
+      </aside>
+
+      <section class="battlefield" aria-label="双方棋阵">
+        <div class="board-caption"><span><i class="side-dot jade"></i>青玉阵 <small>六子在阵</small></span><span class="encounter">交锋 · 其三</span><span><small>六子在阵</small> 陶土阵<i class="side-dot clay"></i></span></div>
+        <div class="board" id="board">
+          <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+          <div class="formation-labels"><span>后阵</span><span>前阵</span><span>前阵</span><span>后阵</span></div>
+          <div class="army army-ally" id="allies" aria-label="我方六枚弈子"></div>
+          <div class="river" aria-hidden="true"><i></i><span>弈</span><i></i></div>
+          <div class="army army-enemy" id="enemies" aria-label="敌方六枚弈子"></div>
+          <div id="board-flash" aria-hidden="true"></div>
+        </div>
+        <div class="battle-hint" id="hint" role="status"><span class="hint-diamond">◇</span> 以牌为令，落子成势。<span class="hint-sub">选择手牌，查看作用目标</span></div>
+      </section>
+
+      <aside class="hero hero-enemy" aria-label="敌方弈者影手">
+        <div class="side-label"><span></span>敌方弈者<span></span></div>
+        <div class="portrait-stage"><div class="portrait-halo"></div><span class="portrait-script">隐</span><img src="../../assets/portraits/yingshou_lihui_transparent_v2.png" alt="影手，蒙面与暗色披风" draggable="false"></div>
+        <div class="hero-name"><span class="mini-seal">袭</span><h1>影手</h1></div><p class="hero-role">藏锋于影，一击无声。</p>
+        <div class="energy-heading"><span>能量</span><span><b>40</b> / 100</span></div><div class="energy-track"><i style="width:40%"></i></div>
+        <div class="enemy-intent"><span>势</span><div><strong>潜行 · 待发</strong><small>蓄势中的敌方弈者</small></div></div>
+      </aside>
+
+      <section class="resource" aria-label="技能点与抽牌堆"><div class="sp-orb"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="43"/><circle class="sp-arc" cx="50" cy="50" r="43"/></svg><span id="sp">7</span><small>技能点</small></div><div class="sp-max">SP <span id="sp-total">7</span> / 10</div><button class="deck-button" id="draw-open"><span class="deck-icon"><i></i><b>弈</b></span><span>抽牌堆<strong>9</strong></span></button></section>
+
+      <section class="hand-area" aria-label="手牌"><div class="hand-heading"><span class="fine-line"></span><span>手中之策</span><small id="hand-count">伍</small><span class="fine-line"></span></div><div id="hand" class="hand"></div></section>
+
+      <section class="turn-controls"><span class="turn-overline">谋 定 而 动</span><button id="end-turn"><span>结束回合</span><svg viewBox="0 0 36 16" aria-hidden="true"><path d="M1 8H32M25 1L32 8 25 15"/></svg></button><small>落子之后，静观其变</small><div class="piles"><button id="discard-open">弃牌 <b id="discard-count">4</b></button><i></i><span>消耗 <b>0</b></span></div></section>
+
+      <footer><span>墨玉棋境 <i>／</i> 战斗美术概念</span><span>悬停阅牌 · 点击选牌与目标 · Esc 取消</span><span>交互演示 <span class="footer-dot"></span></span></footer>
+      <div class="toast" id="toast" role="status"></div>
+      <dialog id="detail-dialog"><div class="dialog-top"><span class="dialog-kicker">弈者 · 棋局手记</span><button id="dialog-close" aria-label="关闭">×</button></div><h2 id="dialog-title"></h2><div id="dialog-content"></div><p class="dialog-note">本页为美术与交互概念演示，展示数值不接入实战规则。</p></dialog>
+    </main>
+  </div>
+  <script src="battle-concept-pieces.js"></script>
+  <script src="battle-concept.js"></script>
+</body>
+</html>

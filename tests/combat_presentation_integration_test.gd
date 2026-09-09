@@ -20,6 +20,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("same-batch Buffs flush together and relic damage retains its source", func() -> void:
 		_test_buff_wave_and_relic(harness)
 	)
+	harness.run_test("unit and side statuses update from events and retain complete inspection text", func() -> void:
+		_test_status_updates(harness)
+	)
 	harness.run_test("card destination FX and fatal terminal state are visible without mutating authority", func() -> void:
 		_test_card_fx_and_terminal(harness)
 	)
@@ -55,8 +58,8 @@ func _test_composition_and_clock(harness: TestHarness) -> void:
 	root.battle_screen.fx_player.clear_visual_effect()
 	harness.assert_equal(
 		str(ProjectSettings.get_setting("application/run/main_scene", "")),
-		"res://scenes/main.tscn",
-		"M4-6 must promote the tested formal composition as the project main scene",
+		"res://scenes/run.tscn",
+		"the journey entry must host the reusable formal battle composition",
 	)
 	root.free()
 
@@ -96,9 +99,50 @@ func _test_damage_heal_and_markers(harness: TestHarness) -> void:
 
 	var blocked := damage.duplicate(true)
 	blocked["sequence"] = 2
+	blocked["payload"]["blocked"] = true
+	blocked["payload"]["new_hp"] = 100.0
+	blocked["payload"]["amount"] = 0.0
+	screen.present_event(blocked, 0.0)
+	harness.assert_equal(screen.feedback_instances()[-1].value_label.text, "暴击·格挡")
+	harness.assert_equal(screen.feedback_instances()[-2].value_label.text, "−0")
+	var feedback_before: int = screen.feedback_instances().size()
 	blocked["event_id"] = "unit_blocked"
 	screen.present_event(blocked, 0.0)
-	harness.assert_equal(screen.feedback_instances()[-1].value_label.text, "格挡")
+	harness.assert_equal(screen.feedback_instances().size(), feedback_before, "blocked envelope does not duplicate a float or marker")
+	blocked["event_id"] = "damage_applied"
+	blocked["payload"]["amount"] = 12.0
+	screen.present_event(blocked, 0.0)
+	harness.assert_equal(screen.feedback_instances()[-2].value_label.text, "−12", "settled amount takes precedence over HP fallback")
+	screen.free()
+
+
+func _test_status_updates(harness: TestHarness) -> void:
+	var screen: Variant = _screen()
+	var vm := _vm()
+	vm["teams"]["ally"]["slots"][0]["disarm_turns"] = 2
+	screen.bind_view_model(vm)
+	var slot: Variant = screen.ally_board.slot_for_target({"slot": 1})
+	harness.assert_true(slot.buff_label.text.contains("缴械·2回合"))
+	var event := _event(1, "statuses", "buff", "buff_applied", _source("system", "buff"),
+		{"kind": "unit", "side": "ally", "slot": 1},
+		{"buff_id": "enchant", "state": {"stacks": 3, "turns": 0, "layer_turns": []}})
+	screen.present_event(event, 0.0)
+	harness.assert_true(slot.buff_label.text.contains("附魔×3"))
+	harness.assert_true(slot.tooltip_text.contains("附魔×3"))
+	event["payload"]["state"] = null
+	screen.present_event(event, 0.0)
+	harness.assert_false(slot.buff_label.text.contains("附魔"))
+	event["visual_target"] = {"kind": "side", "side": "ally"}
+	event["event_id"] = "side_buff_applied"
+	event["payload"] = {"buff_id": "tempBlock", "state": {"stacks": 1, "turns": 2, "layer_turns": []}}
+	screen.present_event(event, 0.0)
+	harness.assert_true(screen.ally_side_buffs.text.contains("临时格挡×1·2回合"))
+	harness.assert_equal(screen.enemy_side_buffs.text, "")
+	harness.assert_true(screen.ally_side_buffs.tooltip_text.contains("临时格挡"))
+	event["payload"]["state"] = null
+	event["event_id"] = "side_buff_expired"
+	screen.present_event(event, 0.0)
+	harness.assert_equal(screen.ally_side_buffs.text, "")
 	screen.free()
 
 

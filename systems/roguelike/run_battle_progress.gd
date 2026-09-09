@@ -65,6 +65,21 @@ func runtime_draft_authority(errors: Array[String] = []) -> Dictionary:
 	return _draft
 
 
+func formation_slots(errors: Array[String] = []) -> Array:
+	errors.clear()
+	if not _require_open(errors):
+		return []
+	var result: Array = []
+	for entry: Dictionary in _piece_slots:
+		result.append({
+			"slot": entry["slot"],
+			"occupied": entry["piece_class_id"] != null,
+			"piece_class_id": entry["piece_class_id"],
+			"hp_ratio": entry["hp_ratio"],
+		})
+	return result
+
+
 func snapshot(errors: Array[String] = []) -> Dictionary:
 	errors.clear()
 	if not _require_open(errors):
@@ -85,12 +100,13 @@ func project_allies(allies: Variant, errors: Array[String] = []) -> Array:
 	var canonical := _canonical_allies(allies, false, errors)
 	if not errors.is_empty():
 		return []
-	var ratios := {}
+	var entries := {}
 	for entry: Dictionary in _piece_slots:
-		ratios[entry["slot"]] = float(entry["hp_ratio"])
+		entries[entry["slot"]] = entry
 	for unit: Dictionary in canonical:
-		var ratio: float = ratios[unit["slot"]]
-		if ratio == 0.0:
+		var entry: Dictionary = entries[unit["slot"]]
+		var ratio: float = float(entry["hp_ratio"])
+		if entry["piece_class_id"] == null or ratio == 0.0:
 			unit["hp"] = 0.0
 			unit["alive"] = false
 		else:
@@ -106,12 +122,21 @@ func settlement_snapshot(allies: Variant, errors: Array[String] = []) -> Diction
 	var canonical := _canonical_allies(allies, true, errors)
 	if not errors.is_empty():
 		return {}
+	var previous_by_slot := {}
+	for entry: Dictionary in _piece_slots:
+		previous_by_slot[entry["slot"]] = entry
 	var slots: Array = []
 	for unit: Dictionary in canonical:
-		var ratio := 0.0
-		if not unit["is_puppet"] and unit["alive"] and float(unit["hp"]) > 0.0:
+		var previous: Dictionary = previous_by_slot[unit["slot"]]
+		var ratio: float = float(previous["hp_ratio"])
+		if previous["piece_class_id"] != null and not unit["is_puppet"] and unit["alive"] and float(unit["hp"]) > 0.0:
 			ratio = clampf(float(unit["hp"]) / float(unit["max_hp"]), 0.0, 1.0)
-		slots.append({"slot": unit["slot"], "hp_ratio": ratio})
+		elif previous["piece_class_id"] != null:
+			ratio = 0.0
+		slots.append({
+			"slot": unit["slot"], "hp_ratio": ratio,
+			"piece_class_id": previous["piece_class_id"],
+		})
 	var buffs: Array = _growth_port.snapshot(errors)
 	if not errors.is_empty():
 		return {}
@@ -158,7 +183,7 @@ func _canonical_allies(value: Variant, allow_puppets: bool, errors: Array[String
 			or (not unit["alive"] and float(unit["hp"]) != 0.0)
 			or (not allow_puppets and unit["is_puppet"])
 		):
-			errors.append("Run battle ally %d has invalid HP, slot, side, or puppet state" % index)
+			errors.append("Run battle ally %d has invalid HP, slot, side, or puppet state: %s" % [index, str(unit)])
 			return []
 		slots[unit["slot"]] = true
 		result.append(_deep_copy(unit))

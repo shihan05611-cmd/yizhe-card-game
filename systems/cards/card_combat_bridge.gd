@@ -15,6 +15,7 @@ const FreeSkillEffectsScript = preload("res://systems/effects/free_skill_effects
 const FlameFateEffectsScript = preload("res://systems/effects/hero_effects_flame_fate.gd")
 const MarshalFistEffectsScript = preload("res://systems/effects/hero_effects_marshal_fist.gd")
 const SiegePuppetShadowEffectsScript = preload("res://systems/effects/hero_effects_siege_puppet_shadow.gd")
+const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
 
 const CONFIG_KEYS := [
 	"state", "hand_runtime", "card_catalog", "registry", "ports",
@@ -364,6 +365,17 @@ func _post_success(command: Variant, prepared: Dictionary, destination: String) 
 		"destination": destination,
 		"source_effect": ContextsScript.snapshot(prepared["context"]["source_effect"]),
 	}
+	if int(prepared["actual_cost"]) > 0:
+		var spend_payload: Dictionary = event_payload.duplicate(true)
+		spend_payload["source_side"] = "ally"
+		var spent: Dictionary = _ports.call_action("emit_content_event", {
+			"event_id": "skillPointSpent",
+			"payload": spend_payload,
+		})
+		if not spent["ok"]:
+			return CombatPortsScript.fail(
+				"player card SP-spent event failed after card/effect commit: %s" % spent["error"]
+			)
 	var emitted: Dictionary = _ports.call_action("emit_content_event", {
 		"event_id": event_id,
 		"payload": event_payload,
@@ -427,6 +439,9 @@ func _authority_error(command: Variant, instance: Variant) -> String:
 
 
 func _source_name(definition: Variant) -> String:
+	var extended_display := HeroCardCatalog.display(definition.id)
+	if not extended_display.is_empty():
+		return str(extended_display.get("name", ""))
 	var errors: Array[String] = []
 	var catalogs: Variant = _ports.service("catalogs", errors)
 	if not errors.is_empty():

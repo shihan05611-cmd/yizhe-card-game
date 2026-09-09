@@ -52,4 +52,5 @@ func _apply(hero_vms: Array) -> void:
 		var active := index < hero_vms.size()
 		_items[index].visible = active
 		if active:
+			_items[index].set_compact(hero_vms.size() > 1)
 			_items[index].bind_hero(hero_vms[index])

@@ -32,38 +32,40 @@ anchor_top = 0.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 32.0
-offset_top = 80.0
+offset_top = 108.0
 offset_right = -32.0
-offset_bottom = -268.0
-theme_override_constants/separation = 22
+offset_bottom = -254.0
+theme_override_constants/separation = 18
 mouse_filter = 2
 
 [node name="AllyHeroes" parent="Battlefield" instance=ExtResource("heroes")]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(174, 0)
+custom_minimum_size = Vector2(168, 0)
 side_title = "我方弈者"
 
 [node name="Arena" type="HBoxContainer" parent="Battlefield"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 58
+theme_override_constants/separation = 20
 mouse_filter = 2
 
 [node name="AllyBoard" parent="Battlefield/Arena" instance=ExtResource("board")]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+front_column_on_right = true
 
 [node name="EnemyBoard" parent="Battlefield/Arena" instance=ExtResource("board")]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+front_column_on_right = false
 
 [node name="EnemyHeroes" parent="Battlefield" instance=ExtResource("heroes")]
 unique_name_in_owner = true
 layout_mode = 2
-custom_minimum_size = Vector2(174, 0)
+custom_minimum_size = Vector2(168, 0)
 side_title = "敌方弈者"
 
 [node name="HandView" parent="." instance=ExtResource("hand")]
@@ -73,10 +75,10 @@ anchor_left = 0.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 151.0
-offset_top = -252.0
-offset_right = -151.0
-offset_bottom = -6.0
+offset_left = 146.0
+offset_top = -246.0
+offset_right = -146.0
+offset_bottom = -8.0
 custom_minimum_size = Vector2(0, 0)
 z_index = 2
 
@@ -130,6 +132,36 @@ anchor_bottom = 1.0
 mouse_filter = 2
 z_index = 5
 
+[node name="AllySideBuffs" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 0.5
+offset_left = 210.0
+offset_top = 100.0
+offset_right = -16.0
+offset_bottom = 124.0
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 2
+max_lines_visible = 2
+text_overrun_behavior = 3
+mouse_filter = 1
+
+[node name="EnemySideBuffs" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 1.0
+offset_left = 16.0
+offset_top = 100.0
+offset_right = -210.0
+offset_bottom = 124.0
+theme_override_font_sizes/font_size = 11
+horizontal_alignment = 2
+autowrap_mode = 2
+max_lines_visible = 2
+text_overrun_behavior = 3
+mouse_filter = 1
+
 [node name="ResultOverlay" parent="." instance=ExtResource("result")]
 unique_name_in_owner = true
 layout_mode = 1
@@ -145,4 +177,3 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 z_index = 10
-

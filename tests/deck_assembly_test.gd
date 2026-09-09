@@ -20,6 +20,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("new external roster and free-skill inputs change only new battle assembly", func() -> void:
 		_test_changed_external_input(harness)
 	)
+	harness.run_test("earned exclusive copies retain ownership and independent instances", func() -> void:
+		_test_earned_exclusives(harness)
+	)
 	print("M3-3 DECK ASSEMBLY TESTS: tests=%d assertions=%d failures=%d" % [
 		harness.tests - tests_before,
 		harness.assertions - assertions_before,
@@ -89,6 +92,28 @@ func _test_changed_external_input(harness: TestHarness) -> void:
 	harness.assert_false(second["value"]["card_ids"].has("exclusive:counterAura"))
 
 
+func _test_earned_exclusives(harness: TestHarness) -> void:
+	var authority := _authority()
+	var earned := ["exclusive:shadow", "exclusive:shadow"]
+	var result := _assemble(authority, [9], [], earned)
+	harness.assert_true(result["ok"], str(result))
+	if not result["ok"]:
+		return
+	harness.assert_equal(result["value"]["card_ids"].count("exclusive:shadow"), 3)
+	harness.assert_equal(result["value"]["active_hero_count"], 1, "extra copies do not increase turn draw")
+	var hand := HandRuntimeScript.new("earned-exclusive-copies")
+	var initialized: Variant = hand.initialize_deck(result["value"]["definitions"], false)
+	harness.assert_true(initialized.ok, initialized.message)
+	var ids: Array = initialized.details["instance_ids"]
+	harness.assert_equal(ids.size(), 3)
+	harness.assert_false(ids[0] == ids[1])
+	harness.assert_false(ids[1] == ids[2])
+	for invalid in [["exclusive:shadow"], ["ultimate:shadow"], ["free:smallHeal"], ["exclusive:counterAura"], [12]]:
+		var rejected := _assemble(authority, [4], [], invalid)
+		harness.assert_false(rejected["ok"], "undeployed, passive, ultimate and non-exclusive inputs are rejected")
+	harness.assert_equal(earned, ["exclusive:shadow", "exclusive:shadow"], "assembly does not mutate ownership")
+
+
 func _authority() -> Dictionary:
 	var errors: Array[String] = []
 	var catalogs: Dictionary = ContentCatalogScript.build(errors)
@@ -104,6 +129,7 @@ func _assemble(
 	authority: Dictionary,
 	roster: Array,
 	free_skill_ids: Array,
+	exclusive_card_ids: Array = [],
 ) -> Dictionary:
 	return DeckAssemblerScript.assemble({
 		"card_catalog": authority["cards"],
@@ -111,6 +137,7 @@ func _assemble(
 		"exclusive_catalog": authority["catalogs"]["hero_abilities"]["exclusive"],
 		"deployed_hero_ids": roster,
 		"free_skill_ids": free_skill_ids,
+		"exclusive_card_ids": exclusive_card_ids,
 	})
 
 

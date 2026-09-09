@@ -7,7 +7,7 @@ theme_override_styles/panel = SubResource("Empty")
 script = ExtResource("script")
 
 [node name="Content" type="VBoxContainer" parent="."]
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
 [node name="TitleLabel" type="Label" parent="Content"]
 unique_name_in_owner = true
@@ -21,5 +21,4 @@ size_flags_vertical = 3
 unique_name_in_owner = true
 size_flags_vertical = 3
 size_flags_horizontal = 3
-theme_override_constants/separation = 8
-
+theme_override_constants/separation = 6

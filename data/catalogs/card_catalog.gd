@@ -4,6 +4,7 @@ extends RefCounted
 const Card = preload("res://data/definitions/card_definition.gd")
 const Skill = preload("res://data/definitions/skill_definition.gd")
 const Ability = preload("res://data/definitions/hero_ability_definition.gd")
+const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
 
 const EXCLUDED_FREE_SKILL_IDS: Array[String] = ["basicDamage"]
 
@@ -95,6 +96,14 @@ static func build_from(
 			ability.handler_id,
 		)
 		catalog[definition.id] = definition
+	for card_id: String in HeroCardCatalog.ids():
+		var extra: Variant = HeroCardCatalog.definitions().get(card_id)
+		if extra == null:
+			errors.append("card catalog references unknown extra card: %s" % card_id)
+			continue
+		catalog[card_id] = extra.snapshot()
+	if not errors.is_empty():
+		return {}
 	return catalog
 
 

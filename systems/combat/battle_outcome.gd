@@ -26,30 +26,50 @@ static func check(
 	if candidate == null:
 		return CombatPortsScript.ok(_result("none", null, false))
 
-	var resolved: Dictionary = ports.call_action("resolve_battle_end", {"result": candidate})
+	return _commit(state, ports, candidate, _message(candidate))
+
+
+## A battle-only developer shortcut. It uses the exact same external resolve,
+## commit, log, and notification sequence as an ordinary enemy wipe, without
+## fabricating unit deaths or changing either team's health.
+static func force_win(
+	state: Variant,
+	ports: Variant,
+	errors: Array[String] = [],
+) -> Dictionary:
+	errors.clear()
+	if not _validate_inputs(state, ports, errors):
+		return _fail(errors)
+	if state["game_over"]:
+		return CombatPortsScript.ok(_result("already_settled", state["battle_result"], true))
+	return _commit(state, ports, "win", "已通过快捷指令判定本场战斗胜利。")
+
+
+static func _commit(state: Dictionary, ports: Variant, result: String, message: String) -> Dictionary:
+	var resolved: Dictionary = ports.call_action("resolve_battle_end", {"result": result})
 	if not resolved["ok"]:
 		return CombatPortsScript.fail("battle outcome resolve rejected before state commit: %s" % resolved["error"])
 	if not _explicitly_accepted(resolved["value"]):
-		return CombatPortsScript.fail("battle outcome resolve did not explicitly accept %s before state commit" % candidate)
+		return CombatPortsScript.fail("battle outcome resolve did not explicitly accept %s before state commit" % result)
 
 	# Commit immediately after the external settlement accepts. Any later failure
 	# must leave this terminal state in place so a retry cannot settle twice.
 	state["game_over"] = true
-	state["battle_result"] = candidate
+	state["battle_result"] = result
 	var logged: Dictionary = ports.call_action("log", {
-		"message": _message(candidate),
-		"class": "bad" if candidate == "lose" else "ok",
+		"message": message,
+		"class": "bad" if result == "lose" else "ok",
 	})
 	if not logged["ok"]:
 		return CombatPortsScript.fail(
-			"battle outcome committed=%s; log failed after resolve acceptance: %s" % [candidate, logged["error"]]
+			"battle outcome committed=%s; log failed after resolve acceptance: %s" % [result, logged["error"]]
 		)
-	var notified: Dictionary = ports.call_action("on_battle_resolved", {"result": candidate})
+	var notified: Dictionary = ports.call_action("on_battle_resolved", {"result": result})
 	if not notified["ok"]:
 		return CombatPortsScript.fail(
-			"battle outcome committed=%s; on_battle_resolved failed after resolve acceptance and log: %s" % [candidate, notified["error"]]
+			"battle outcome committed=%s; on_battle_resolved failed after resolve acceptance and log: %s" % [result, notified["error"]]
 		)
-	return CombatPortsScript.ok(_result("settled", candidate, true))
+	return CombatPortsScript.ok(_result("settled", result, true))
 
 
 static func candidate(state: Variant, errors: Array[String] = []) -> Variant:

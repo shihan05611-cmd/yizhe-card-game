@@ -1,5 +1,6 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 [ext_resource type="Script" path="res://ui/battle/piece_slot.gd" id="script"]
+[ext_resource type="Script" path="res://ui/art/geometry_piece.gd" id="geometry"]
 [sub_resource type="StyleBoxEmpty" id="Empty"]
 
 [node name="PieceSlot" type="PanelContainer"]
@@ -11,7 +12,7 @@ script = ExtResource("script")
 layout_mode = 2
 mouse_filter = 2
 
-[node name="ChessArt" type="TextureRect" parent="Content"]
+[node name="ChessArt" type="Control" parent="Content"]
 unique_name_in_owner = true
 layout_mode = 1
 anchor_left = 0.0
@@ -22,8 +23,7 @@ offset_left = 0.0
 offset_top = 0.0
 offset_right = 0.0
 offset_bottom = -26.0
-expand_mode = 1
-stretch_mode = 5
+script = ExtResource("geometry")
 mouse_filter = 2
 
 [node name="Header" type="Control" parent="Content"]
@@ -35,6 +35,7 @@ mouse_filter = 2
 
 [node name="SlotLabel" type="Label" parent="Content/Header"]
 unique_name_in_owner = true
+visible = false
 layout_mode = 1
 anchor_left = 0.0
 anchor_top = 0.0
@@ -49,13 +50,13 @@ modulate = Color(0.7, 0.72, 0.62, 0.4)
 
 [node name="ClassLine" type="Control" parent="Content"]
 layout_mode = 1
-anchor_left = 0.0
+anchor_left = 0.5
 anchor_top = 1.0
-anchor_right = 1.0
+anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = 0.0
+offset_left = -62.0
 offset_top = -27.0
-offset_right = 0.0
+offset_right = 62.0
 offset_bottom = -10.0
 
 
@@ -65,7 +66,7 @@ layout_mode = 1
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-offset_left = 15.0
+offset_left = 0.0
 offset_right = -65.0
 horizontal_alignment = 0
 theme_override_font_sizes/font_size = 11
@@ -86,13 +87,13 @@ color = Color(0.7, 0.3, 0.25, 1)
 
 [node name="HpStack" type="Control" parent="Content"]
 layout_mode = 1
-anchor_left = 0.0
+anchor_left = 0.5
 anchor_top = 1.0
-anchor_right = 1.0
+anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = 15.0
+offset_left = -62.0
 offset_top = -8.0
-offset_right = -15.0
+offset_right = 62.0
 offset_bottom = -3.0
 
 
@@ -131,7 +132,7 @@ offset_top = 0.0
 offset_right = 0.0
 offset_bottom = 16.0
 horizontal_alignment = 2
-theme_override_font_sizes/font_size = 9
+theme_override_font_sizes/font_size = 11
 text_overrun_behavior = 3
 visible = false
 
@@ -153,4 +154,3 @@ offset_right = 20.0
 offset_bottom = 1.0
 rotation = -0.5
 color = Color(0.7, 0.3, 0.25, 0.8)
-

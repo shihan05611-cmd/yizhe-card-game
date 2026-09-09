@@ -28,6 +28,8 @@ const HERO_NAMES := {1: "赤焰", 3: "元帅", 4: "骑士", 5: "偃术师", 6: "
 @onready var _disabled_overlay: ColorRect = %DisabledOverlay
 @onready var _reason_label: Label = %UnavailableReason
 @onready var _input_button: Button = %InputButton
+@onready var _illustration: Control = %CardIllustration
+@onready var _card_face: Control = $CardSurface/CardFace
 
 var _card_vm: Dictionary = {}
 var _layout_position := Vector2.ZERO
@@ -54,12 +56,18 @@ func _ready() -> void:
 func bind_card(card_vm: Dictionary) -> void:
 	_card_vm = card_vm.duplicate(true)
 	_name_label.text = str(_card_vm.get("name", "未命名卡牌"))
-	_description_label.text = str(_card_vm.get("description", ""))
-	_category_label.text = CATEGORY_NAMES.get(str(_card_vm.get("category", "")), "卡牌")
+	_description_label.text = _card_short_description()
+	var category := str(_card_vm.get("category", ""))
+	_category_label.text = _category_mark(category)
+	_category_label.modulate = {
+		"free": Color("395646"), "exclusive": Color("69583d"), "ultimate": Color("80503d"),
+	}.get(category, Color("263c31"))
 	var owner: Variant = _card_vm.get("owner_hero_id")
 	_owner_label.text = "公共" if owner == null or int(owner) == 0 else str(HERO_NAMES.get(int(owner), "弈者"))
 	_cost_label.text = _cost_text()
 	_tags_label.text = _tag_text()
+	_card_face.bind_card(_card_vm)
+	_illustration.bind_card(_card_vm)
 	var complete_tooltip := str(_card_vm.get("description", ""))
 	var unavailable_reason := _display_reason(str(_card_vm.get("unavailable_reason", "")))
 	if not unavailable_reason.is_empty():
@@ -242,6 +250,53 @@ static func _display_reason(reason: String) -> String:
 	if reason.begins_with("player_card_validator") or reason.begins_with("player card validator"):
 		return "当前条件不满足"
 	return reason
+
+
+func _card_short_description() -> String:
+	# The hand uses deliberately short, accurate reading lines; the untouched
+	# authored description remains on both tooltip targets for full rules text.
+	if str(_card_vm.get("category", "")) == "ultimate":
+		return _ultimate_short_line()
+	var short_lines := {
+		"pieceBlock": "我方全体格挡率 +15%\n持续 1 回合",
+		"pieceDamageUp": "我方全体直接伤害 +30%\n持续 1 回合",
+		"markBurn": "敌方灼烧层数最高单位\n施加 1 层灼烧",
+		"executeStrike": "攻击最高棋子攻击敌方最低生命者\n造成 150% 直接伤害",
+		"smallHeal": "我方当前生命最低棋子\n回复 5% 生命上限",
+		"shadow": "攻击最高的非傀儡棋子进入潜行 1 回合\n结算后回到手牌",
+		"pressOpening": "敌方有破势时\n攻击最高的非傀儡\n获得 2 层追击",
+		"fist": "造成基于棋子平均攻击的直接伤害\n并叠加 1 层拳势",
+		"siege": "对单体造成平均攻击的直接伤害\n并施加不可叠加的破势",
+		"puppet": "在我方空位召唤傀儡\n固定 100 生命、攻击 0",
+		"ascend": "目标位棋子升变为将军\n生命上限 +80，格挡率 +10%",
+		"fate": "激活命运结界（每场一次）\n每回合随机切换命运",
+		"burn01": "已有灼烧层数翻倍\n并使其持续 +2 回合",
+		"burnEnchant": "存活非傀儡位置获得引火\n并立即生效",
+	}
+	return str(short_lines.get(str(_card_vm.get("source_skill_id", "")), _card_vm.get("description", "")))
+
+
+func _ultimate_short_line() -> String:
+	var lines := {
+		"burn01": "敌方全体受到直接伤害\n伤害随灼烧层数提高",
+		"fate": "1 回合内同时生效所有命运\n并剔除对己方的约束",
+		"ascend": "将军回复已损生命的 50%\n获得出征 2 回合",
+		"counterAura": "全体棋子获得骑士道\n受伤时直接超级反击",
+		"burnEnchant": "全体获得炎汲 2 回合\n受灼烧敌人攻击时回复",
+		"fist": "随机目标连续打击 3 段\n每层拳势额外 +1 段",
+		"siege": "展开破阵领域 2 回合\n敌方直接伤害承受 +20%",
+		"puppet": "所有空位召唤傀儡\n傀儡获得殉道",
+		"shadow": "锁定敌方最低生命单位\n造成 400% 伤害，潜行者追击",
+	}
+	return str(lines.get(str(_card_vm.get("source_skill_id", "")), "发动弈者的大招效果。"))
+
+
+static func _category_mark(category: String) -> String:
+	match category:
+		"free": return "◇ 自由"
+		"exclusive": return "◆ 专属"
+		"ultimate": return "✦ 大招"
+	return "◇ 卡牌"
 
 
 func _kill_pose_tween() -> void:

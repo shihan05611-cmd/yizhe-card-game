@@ -138,15 +138,15 @@ func _win_through_real_adapter(
 	harness.assert_false(controller.has_method("use_shentong"))
 	var battle_state: Dictionary = controller._runtime.component("state")
 	if trace["battle_commits"] == 0:
-		battle_state["allies"][0]["hp"] = float(battle_state["allies"][0]["max_hp"]) * 0.75
-		battle_state["allies"][0]["alive"] = true
+		battle_state["allies"][1]["hp"] = float(battle_state["allies"][1]["max_hp"]) * 0.75
+		battle_state["allies"][1]["alive"] = true
 	battle_state["game_over"] = true
 	battle_state["battle_result"] = "win"
 	harness.assert_true(adapter.settle_if_terminal(errors), "; ".join(errors))
 	harness.assert_true(adapter.is_settled())
 	trace["battle_commits"] += 1
 	if trace["battle_commits"] == 1:
-		harness.assert_equal(state["piece_slots"][0]["hp_ratio"], 0.75)
+		harness.assert_equal(state["piece_slots"][1]["hp_ratio"], 0.75)
 	if node["type"] == "boss":
 		trace["boss_wins"].append(node["chapter"])
 	manager.free()

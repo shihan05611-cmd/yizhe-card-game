@@ -1,33 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://ui/effects/fx_primitive.gd" id="1"]
 
-[sub_resource type="StyleBoxFlat" id="GenericStyle"]
-bg_color = Color(0.24, 0.55, 0.95, 0.12)
-border_width_left = 4
-border_width_top = 4
-border_width_right = 4
-border_width_bottom = 4
-border_color = Color(0.62, 0.82, 1, 0.9)
-corner_radius_top_left = 48
-corner_radius_top_right = 48
-corner_radius_bottom_right = 48
-corner_radius_bottom_left = 48
-
 [node name="GenericSkillFx" type="Control"]
 layout_mode = 0
-offset_left = -48.0
-offset_top = -48.0
-offset_right = 48.0
-offset_bottom = 48.0
 mouse_filter = 2
 script = ExtResource("1")
-
-[node name="Pulse" type="Panel" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("GenericStyle")

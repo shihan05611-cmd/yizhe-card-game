@@ -23,7 +23,10 @@ func _test_derived_catalog(harness: TestHarness) -> void:
 	var skills := SkillCatalogScript.build()
 	var abilities := _abilities()
 	var catalog := CardCatalogScript.build(skills, abilities)
-	harness.assert_equal(catalog.size(), 27)
+	harness.assert_equal(catalog.size(), 28)
+	var expansion: Variant = catalog["exclusive:pressOpening"]
+	harness.assert_equal([expansion.owner_hero_id, expansion.base_sp_cost, expansion.card_category], [7, 1, Card.CATEGORY_EXCLUSIVE])
+	harness.assert_false(abilities["exclusive"].has("pressOpening"), "follow-up cards do not replace initial hero abilities")
 	harness.assert_false(catalog.has("free:basicDamage"))
 	for definition in catalog.values():
 		harness.assert_true(definition is Resource and definition.get_script() == Card)

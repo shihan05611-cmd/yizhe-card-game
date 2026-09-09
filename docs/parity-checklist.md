@@ -1,22 +1,22 @@
-# Web → Godot 规则对照表（表 A 初稿）
+# Web → Godot 规则对照表
 
 本表继承 Web `docs/unity-web-parity.md` 的 41 条 Unity↔Web 审计结论，并加入 Godot 迁移地基/数据合同、玩家侧卡牌改版、Godot 表现层替代规则与明确废弃项。它只按可验证规则计数，不使用“已迁移文件数”或代码行比例。
 
-状态机为 `未开始 → 已实现 → 已测试 → 已验收`，另有终态 `已废弃`。本模块不自标 `已验收`；`已测试` 仅用于当前 Godot 仓库已有自动测试证据的 M0/M1/M2 条目，最终验收由总集成完成。
+状态机为 `未开始 → 已实现 → 已测试 → 已验收`，另有终态 `已废弃`。本模块不自标 `已验收`；`已测试` 仅用于当前 Godot 仓库已有直接自动测试证据的条目。已有生产实现、但测试只覆盖相邻边界或替身 action 的条目保持 `已实现`，最终验收由总集成完成。
 
 - 总条目：89
-- 状态快照：未开始 6，已实现 0，已测试 74，已验收 0，已废弃 9
+- 状态快照：未开始 1，已实现 0，已测试 79，已验收 0，已废弃 9
 - 有效分母：`总条目 − 已废弃 = 89 − 9 = 80`
-- 当前进度：`(已测试 + 已验收) / 有效分母 = (74 + 0) / 80 = 92.50%`
+- 当前进度：`(已测试 + 已验收) / 有效分母 = (79 + 0) / 80 = 98.75%`
 
 | ID | 域 | 可验证规则 | 精确来源 | 状态 | 验证方式 |
 | --- | --- | --- | --- | --- | --- |
-| W-001 | 战斗会话 | 新战斗会话建立核心战斗数据，且不会复用上一次会话的可变状态。 | Web `docs/unity-web-parity.md` #1 `NewSessionSeedsCoreBattleData`；Web `scripts/dev/key-regression.mjs` | 未开始 | `battle_session_test.gd::test_new_session_seeds_isolated_core_data` |
+| W-001 | 战斗会话 | 新战斗会话建立核心战斗数据，且不会复用上一次会话的可变状态。 | Web `docs/unity-web-parity.md` #1 `NewSessionSeedsCoreBattleData`；Web `scripts/dev/key-regression.mjs` | 已测试 | `auto_battle_e2e_test.gd`：`terminal result requires and honors explicit overlay restart` 断言重开后 Controller 为新实例，回合回到 1、终局字段清空，且新会话只发布一次 `battleStart` |
 | W-002 | 自由技 | 11 个自由技的可用性由稳定定义与条件处理器决定，不在 UI 中另写判断。 | Web `docs/unity-web-parity.md` #2 `FreeSkillUsabilityComesFromDefinitions`；Web `scripts/tests/free-skills.test.mjs` | 已测试 | `free_skill_effects_test.gd`：`free skill module exposes exactly eleven stable registry handlers`、`unusable and malformed requests fail before action RNG or state mutation` |
-| W-003 | 玩家行动 | 自由技卡成功结算时只记录一次玩家卡牌行动及稳定来源事件。 | Web `docs/unity-web-parity.md` #3 `FreeSkillMarksPlayerAction`；改版稿 §2、§7.1 | 未开始 | `card_play_flow_test.gd::test_free_skill_records_one_player_action` |
-| W-004 | 战斗重置 | 重开战斗会清空上局临时行动状态、出牌队列与结算中标记。 | Web `docs/unity-web-parity.md` #4 `ResetBattleClearsPlayerAction`；Web `scripts/dev/key-regression.mjs` | 未开始 | `battle_reset_test.gd::test_reset_clears_transient_action_state` |
+| W-003 | 玩家行动 | 自由技卡成功结算时只记录一次玩家卡牌行动及稳定来源事件。 | Web `docs/unity-web-parity.md` #3 `FreeSkillMarksPlayerAction`；改版稿 §2、§7.1 | 已测试 | `card_play_flow_test.gd`：`free cards use one real handler and actual-cost team energy` 断言真实 handler 只调用一次、稳定 `freeSkillCast` 只发布一次，并只增加一层对应效果；付费事件独立记录实付 SP，不重复技能施放事件 |
+| W-004 | 战斗重置 | 重开战斗会清空上局临时行动状态、出牌队列与结算中标记。 | Web `docs/unity-web-parity.md` #4 `ResetBattleClearsPlayerAction`；Web `scripts/dev/key-regression.mjs` | 已测试 | `battle_restart_isolation_test.gd`：`Battle restart isolates old halted settled card and presentation state` 直接构造旧 session halted/settled、hand queue busy/halted、旧表现 VM/sequence、自动行动与逻辑深度，再断言重开后全部隔离且新局可接受结束回合命令（1 test / 16 assertions） |
 | W-005 | 旧行动规则 | “不发动技能”结束单名弈者行动并回复 1 SP 的流程不进入 Godot 卡牌版。 | Web `docs/unity-web-parity.md` #5 `SkipSelectedHeroEndsActionAndRecoversSkillPoint`；改版稿 §7.1 | 已废弃 | 静态守卫：不存在 `castZeroSkill`/跳过弈者回复 SP 入口 |
-| W-006 | 调试结算 | 强制胜利会结束战斗、击败全部敌方，并走与正常胜利相同的结算入口。 | Web `docs/unity-web-parity.md` #6 `ForceVictoryEndsBattleAndDefeatsEveryEnemy`；Web `scripts/dev/smoke-regression.mjs` | 未开始 | `battle_settlement_test.gd::test_force_victory_uses_shared_settlement` |
+| W-006 | 调试结算 | 强制胜利会结束战斗、击败全部敌方，并走与正常胜利相同的结算入口。 | Web `docs/unity-web-parity.md` #6 `ForceVictoryEndsBattleAndDefeatsEveryEnemy`；Web `scripts/dev/smoke-regression.mjs` | 未开始 | 当前没有玩家流程或调试层的强制胜利 Command；待明确是否保留该调试能力，并在实现后验证全体敌方死亡与正常胜利共用 settlement |
 | W-007 | Run 开局 | 新肉鸽 Run 从初始弈者选择状态开始。 | Web `docs/unity-web-parity.md` #7 `NewRoguelikeRunStartsWithInitialHeroChoice`；Web `scripts/tests/roguelike-run.test.mjs` | 已测试 | `m5_run_lifecycle_test.gd`：`M5 lifecycle starts without shentong and creates the frozen initial deck` |
 | W-008 | Run 开局 | 选择初始弈者后生成独立地图，并且队伍最初只含所选弈者。 | Web `docs/unity-web-parity.md` #8 `ChoosingRoguelikeStartingHeroCreatesIndependentMapWithSingleHero`；Web `scripts/tests/roguelike-run.test.mjs` | 已测试 | `m5_run_lifecycle_test.gd`：开局选择、30 节点地图与单弈者槽位断言；`m5_full_run_e2e_test.gd` 固定种子完整链 |
 | W-009 | 肉鸽地图 | 每章地图为 3×10，固定列规则与节点路径确定性保持 Web 规则。 | Web `docs/unity-web-parity.md` #9 `RoguelikeMapTemplatePreservesFixedColumns`；Web `scripts/tests/roguelike-catalogs-map.test.mjs` | 已测试 | `m5_map_system_test.gd`：`M5 three chapter maps match Web node-for-node` 与图可达性；三章 E2E 完成 30 节点 |
@@ -37,10 +37,10 @@
 | W-024 | 伤害表现 | 遗物伤害保留独立视觉来源，不冒充棋子、技能或持续伤害来源。 | Web `docs/unity-web-parity.md` #24 `RelicDamageEventsCarryIndependentVisualSource`；迁移计划 M4 | 已测试 | `combat_presentation_event_test.gd`：遗物伤害保留 `source.type=relic` 与稳定来源 ID；`combat_presentation_integration_test.gd`：伤害飘字实例保留 relic 类型与来源 ID |
 | W-025 | 伤害 | 延迟伤害不可格挡、不可暴击，且不消费暴击/格挡随机数。 | Web `docs/unity-web-parity.md` #25 `DelayedDamageCannotBlockOrCrit`；Web `scripts/tests/battle-contexts.test.mjs` | 已测试 | `contexts_test.gd`：`delayed context forcibly disables crit guaranteed crit and block`；`m2_damage_golden_test.gd`：`real DamagePipeline and M0 combat stream exactly replay every Web case` |
 | W-026 | 神通 | 【献祭】使用统一死亡流程，并抑制不应由献祭触发的敌方击杀效果。 | Web `docs/unity-web-parity.md` #26 `SacrificeShentongUsesDeathFlowAndMarksPlayerAction`；Web `scripts/tests/roguelike-battle-shentong.test.mjs` | 已测试 | `m5_dormant_shentong_test.gd`：稳定目标、傀儡奖励、sacrifice death context、回滚；生产未接线 |
-| W-027 | 遗物 | 【奥术导体】在我方实际消耗 SP 时对全部敌人造成队伍平均攻击×0.6×实付 SP 的遗物伤害。 | Web `docs/unity-web-parity.md` #27 `RelicArcConductor_DamagesAllEnemiesOnSpSpend`；Web `scripts/tests/relics-specials.test.mjs` | 未开始 | `relic_system_test.gd::test_arc_conductor` |
+| W-027 | 遗物 | 【奥术导体】在我方实际消耗 SP 时对全部敌人造成队伍平均攻击×0.6×实付 SP 的遗物伤害。 | Web `docs/unity-web-parity.md` #27 `RelicArcConductor_DamagesAllEnemiesOnSpSpend`；Web `scripts/tests/relics-specials.test.mjs` | 已测试 | `card_play_flow_test.gd` 直接验证原价/减费成功卡各发布一次 `skillPointSpent`，0 实付与失败卡不发布；`piece_reactions_test.gd` 验证我方付费超级反击发布一次，而敌方支出与骑士精神免费反击不发布；`m5_battle_bridge_test.gd` 以真实 Run runtime/adapter 验证逐个存活敌人的 relic 伤害与死亡 context，并验证奥术导体先杀死攻击者或最后敌人时，反击/卡牌结算仍安全完成（W-027 针对合计 21 tests / 394 assertions / 0 failures） |
 | W-028 | 遗物 | 未拥有的遗物不会启用或触发其效果。 | Web `docs/unity-web-parity.md` #28 `Relic_NotOwned_DoesNotTrigger`；Web `scripts/tests/relics-specials.test.mjs` | 已测试 | `relics_specials_test.gd`：`unowned relics neither modify queries nor dispatch hooks` |
 | W-029 | 遗物 | 【余烬风暴】不会因我方献祭死亡触发。 | Web `docs/unity-web-parity.md` #29 `RelicEmberStorm_DoesNotTriggerOnSacrificeDeath`；Web `scripts/tests/battle-contexts.test.mjs` | 已测试 | `relics_specials_test.gd`：`high-value relic hooks match Arc Ember Thorn and battle-once behavior` |
-| W-030 | 遗物 | 【余烬风暴】按原灼烧层数扩散并立即结算，不额外放大低层灼烧。 | Web `docs/unity-web-parity.md` #30 `RelicEmberStorm_DoesNotAmplifyLowBurnStacks`；Web `scripts/tests/relics-specials.test.mjs` | 未开始 | `relic_system_test.gd::test_ember_storm_low_stacks` |
+| W-030 | 遗物 | 【余烬风暴】按原灼烧层数扩散并立即结算，不额外放大低层灼烧。 | Web `docs/unity-web-parity.md` #30 `RelicEmberStorm_DoesNotAmplifyLowBurnStacks`；Web `scripts/tests/relics-specials.test.mjs` | 已测试 | `ember_storm_runtime_test.gd` 通过真实 Run runtime、Damage 死亡 hook、RelicSystem、adapter、BuffSystem 与 BurnSettlement 验证 1 层小于存活敌人数时不扩散不伤害，以及 11 层按存活敌人数整除后立即造成灼烧伤害（2 tests / 46 assertions / 0 failures） |
 | W-031 | 遗物 | 【荆棘王冠】以格挡前原始伤害的 50% 为反伤基数。 | Web `docs/unity-web-parity.md` #31 `RelicThornCrown_ReflectsBlockedRawDamage`；Web `scripts/tests/relics-specials.test.mjs` | 已测试 | `relics_specials_test.gd`：`high-value relic hooks match Arc Ember Thorn and battle-once behavior` |
 | W-032 | 遗物 | 【余韵追击】每场战斗只在我方首次释放大招时触发一次。 | Web `docs/unity-web-parity.md` #32 `RelicUltPursuitMark_TriggersOnlyOncePerBattle`；Web `scripts/tests/content-dispatcher.test.mjs` | 已测试 | `relics_specials_test.gd`：`high-value relic hooks match Arc Ember Thorn and battle-once behavior` |
 | W-033 | 遗物 | 【真名解放】只在每场战斗前两回合将我方自由技/专属技实付 SP 改为 0。 | Web `docs/unity-web-parity.md` #33 `RelicTrueNameUnseal_OnlyRefundsInFirstTwoRounds`；Web `scripts/tests/relics-specials.test.mjs` | 已测试 | `relics_specials_test.gd`：`owned relic modifiers match Web queries and rounding` |
@@ -88,7 +88,7 @@
 | R-017 | 起始牌库 | 起始牌库含开局弈者主动专属技各一张与初始自由技各一张，具体数量留待 M6 调整。 | 迁移计划 Q6 | 已测试 | `deck_assembly_test.gd`：注入初始自由技逐份加入、上阵主动专属技各一张；`battle_card_session_test.gd`：组装后独立 deck RNG 洗牌并首抽 |
 | R-018 | 招募 | 招募并上阵弈者使 N+1；主动专属技加入牌库，骑士只增加 N。 | 改版稿 §9.2 | 已测试 | `m5_run_lifecycle_test.gd`：两次权威招募、槽位与 M3 牌库重组；`m5_full_run_e2e_test.gd`：三章链实际完成两次招募并在后续战斗投影 roster |
 | R-019 | 敌方规则 | 敌方弈者继续使用旧技能选择、能量与大招规则，不接入玩家卡牌改版。 | 改版稿 §11；迁移计划 M2、M3 排除项 | 已测试 | `enemy_skill_adapter_test.gd`：旧式付费/充能/前后大招；`round_resolver_test.gd`：既有 M2 顺序；`battle_card_session_test.gd`：会话只包裹 M2 resolver，不让敌方进入卡牌桥 |
-| V-001 | 表现层边界 | Web DOM/CSS/`render.js` 不迁移；Godot 战斗表现由场景与 UI 层重做。 | 迁移计划 §1 非目标、M4；附录不迁移清单 | 已测试 | `scene_instantiation_test.gd`：正式组合与动态视觉均从 PackedScene 实例化；表现脚本无 `_draw`/`draw_*`/代码拼 Control 树 |
+| V-001 | 表现层边界 | Web DOM/CSS/`render.js` 不迁移；Godot 战斗表现由用户批准的 Godot 原生代码绘制与场景组合共同实现。 | 迁移计划 §1 非目标、M4；附录不迁移清单；用户批准的原生棋子美术方向 | 已测试 | `scene_instantiation_test.gd` 验证正式页面与动态视觉使用 PackedScene 组合；`battle_scene_test.gd` 验证战斗绑定层不即时绘制或拼 Control 树。`ui/art/` 内聚的 `_draw`/`draw_*` 是批准的原生美术实现，不属于旧 Web DOM/render 迁入，也不再作为禁止项 |
 | V-002 | 战斗场景 | 玩家能在 Godot 战斗场景中完成一整场战斗，无需控制台操作。 | 迁移计划 M4 DoD | 已测试 | `auto_battle_e2e_test.gd`：正式主场景完整推进到 win/lose 并从结果层显式重开；手动拖拽与结束回合沿同一 Command/队列入口 |
 | V-003 | 手牌布局 | 手牌采用可读排布，7 张时不溢出目标窗口。 | 迁移计划 M4 DoD | 已测试 | `hand_ui_test.gd`：1/3/7 张及旋转后四角边界；`tests/artifacts/m4/01_battle_ui_7_cards.png`：1200×700 七牌证据 |
 | V-004 | 卡牌交互 | 卡牌支持悬停放大与拖拽出牌，操作状态由出牌队列约束。 | 迁移计划 M4 范围 | 已测试 | `hand_ui_test.gd`：hover/drag/cancel/queue/fatal；`02_card_hover.png`、`03_card_drag.png` 图形证据 |

@@ -4,6 +4,7 @@ extends Control
 const DamageFloatScene = preload("res://scenes/effects/damage_float.tscn")
 const HealFloatScene = preload("res://scenes/effects/heal_float.tscn")
 const CombatMarkerScene = preload("res://scenes/effects/combat_marker.tscn")
+const PendingCardQueueScript = preload("res://ui/cards/pending_card_queue.gd")
 const LOG_DRAWER_DURATION := 0.18
 const LOG_DRAWER_WIDTH := 300.0
 
@@ -25,6 +26,8 @@ signal play_card_requested(command: Dictionary)
 @onready var feedback_layer: Control = %FeedbackLayer
 @onready var result_overlay: Node = %ResultOverlay
 @onready var fatal_overlay: Node = %FatalOverlay
+@onready var ally_side_buffs: Label = %AllySideBuffs
+@onready var enemy_side_buffs: Label = %EnemySideBuffs
 
 var _pending: Dictionary = {}
 var _input_locked := false
@@ -35,6 +38,9 @@ var _combat_log_open := false
 var _unread_log_count := 0
 var _last_log_count := 0
 var _log_tween: Tween
+var _presented_piece_actions: Dictionary = {}
+var _pending_card_queue: Control
+var _side_buffs := {"ally": [], "enemy": []}
 
 
 func _ready() -> void:
@@ -49,6 +55,13 @@ func _ready() -> void:
 	hand_view.play_card_requested.connect(func(command: Dictionary) -> void:
 		play_card_requested.emit(command)
 	)
+	_pending_card_queue = PendingCardQueueScript.new()
+	_pending_card_queue.cancel_requested.connect(func(instance_id: String) -> void:
+		pending_card_cancel_requested.emit(instance_id)
+	)
+	add_child(_pending_card_queue)
+	resized.connect(_layout_pending_card_queue)
+	call_deferred("_layout_pending_card_queue")
 	if not _pending.is_empty():
 		_apply(_pending)
 	else:
@@ -128,8 +141,85 @@ func set_queue_busy(busy: bool) -> void:
 	_apply_interaction_lock()
 
 
+signal pending_card_cancel_requested(instance_id: String)
+
+
+func set_pending_cards(entries: Array) -> void:
+	if not is_instance_valid(_pending_card_queue):
+		return
+	_pending_card_queue.set_entries(entries)
+	var occupied := not entries.is_empty()
+	battle_hud.end_turn_button.visible = not occupied
+	for path: String in ["Actions/DiscardCountRow", "Actions/ExhaustCountRow"]:
+		var row: CanvasItem = battle_hud.get_node_or_null(path)
+		if row != null:
+			row.visible = not occupied
+	_layout_pending_card_queue()
+
+
+func set_pending_card_instances(instance_ids: Array) -> void:
+	hand_view.set_queued_instance_ids(instance_ids)
+
+
+func cancel_pending_return_flights() -> void:
+	if is_instance_valid(_pending_card_queue):
+		_pending_card_queue.cancel_return_flights()
+
+
+func refresh_visible_hand_availability(authoritative_hand: Array) -> void:
+	hand_view.refresh_visible_availability(authoritative_hand)
+
+
+func take_card_release_pose(instance_id: String) -> Dictionary:
+	var pose: Dictionary = hand_view.take_release_pose(instance_id)
+	if not pose.is_empty(): return pose
+	var card: Variant = hand_view.card_for_instance(instance_id)
+	if card == null: return {}
+	return {"position": card.global_position, "rotation": card.rotation, "scale": card.scale}
+
+
+func present_card_settlement(instance_id: String, card_vm: Dictionary, pose: Dictionary, duration: float) -> void:
+	_pending_card_queue.animate_arrival(instance_id, card_vm, pose, duration)
+
+
+func show_pending_card_notice(message: String) -> void:
+	if is_instance_valid(_pending_card_queue):
+		_pending_card_queue.show_notice(message)
+
+
+func pending_card_count() -> int:
+	return _pending_card_queue.get("_entries").size() if is_instance_valid(_pending_card_queue) else 0
+
+
+func _layout_pending_card_queue() -> void:
+	if not is_instance_valid(_pending_card_queue) or not is_instance_valid(battle_hud):
+		return
+	var button: Control = battle_hud.end_turn_button
+	var button_rect: Rect2 = button.get_global_rect()
+	var hand_rect: Rect2 = hand_view.get_global_rect()
+	# Queue cards use the right-side action strip inside the hand band.  The
+	# original end-turn control only provides its stable x alignment; anchoring
+	# a tall card to that button would overlap the enemy formation.
+	var action_rect := Rect2(
+		Vector2(button_rect.position.x, hand_rect.position.y + 12.0) - get_global_rect().position,
+		Vector2(122.0, maxf(1.0, hand_rect.size.y - 20.0)),
+	)
+	_pending_card_queue.set_queue_anchor(action_rect)
+
+
 func set_presentation_speed(speed: float) -> void:
+	set_speed_display(speed)
+	set_effect_speed(speed)
+
+
+func set_speed_display(speed: float) -> void:
 	battle_hud.set_speed_display(speed)
+
+
+func set_effect_speed(speed: float) -> void:
+	for board: Node in [ally_board, enemy_board]:
+		for slot: Node in board.slot_nodes():
+			slot.set_presentation_speed(speed)
 
 
 func set_duration_clock(clock: Callable) -> void:
@@ -157,11 +247,11 @@ func present_event(event: Dictionary, duration: float) -> void:
 				duration,
 			)
 			target_slot.present_pulse(duration, Color(1.25, 0.62, 0.58, 1.0))
-		_spawn_float(DamageFloatScene, event, duration)
-		if bool(payload.get("crit", false)):
-			_spawn_marker("暴击", event, duration)
-	elif kind == "damage" and event_id == "unit_blocked":
-		_spawn_marker("格挡", event, duration)
+		_spawn_damage_float(event, duration)
+		var tags: Array[String] = []
+		if bool(payload.get("crit", false)): tags.append("暴击")
+		if bool(payload.get("blocked", false)): tags.append("格挡")
+		if not tags.is_empty(): _spawn_marker("·".join(tags), event, duration)
 	elif kind == "heal":
 		if target_slot != null:
 			target_slot.present_hp_change(
@@ -173,9 +263,21 @@ func present_event(event: Dictionary, duration: float) -> void:
 			target_slot.present_pulse(duration, Color(0.55, 1.2, 0.68, 1.0))
 		_spawn_float(HealFloatScene, event, duration)
 	elif kind == "buff" and target_slot != null:
-		target_slot.present_pulse(duration, Color(0.72, 0.68, 1.3, 1.0))
+		target_slot.present_buff_event(event)
+		if str(payload.get("buff_id", "")) == "burn":
+			target_slot.present_pulse(duration, Color(1.10, 0.69, 0.38, 1.0))
+	elif kind == "buff" and str(target.get("kind", "")) == "side":
+		_apply_side_buff_event(str(target.get("side", "")), payload)
 	elif kind == "card":
 		hand_view.present_card_event(event, duration)
+		if str(payload.get("destination", "")) == "hand":
+			var returning_card: Variant = hand_view.prepare_queued_return(
+				str(payload.get("card_instance_id", ""))
+			)
+			if returning_card != null:
+				_pending_card_queue.animate_return(
+					str(payload.get("card_instance_id", "")), returning_card, duration
+				)
 		_present_card_fx(event, duration)
 	elif kind == "fatal":
 		fatal_overlay.bind_fatal(payload)
@@ -200,6 +302,10 @@ func reset_presentation() -> void:
 	_fx_end_tweens.clear()
 	fx_player.clear_visual_effect()
 	clear_transient_feedback()
+	_presented_piece_actions.clear()
+	for board: Node in [ally_board, enemy_board]:
+		for slot: Node in board.slot_nodes():
+			slot.reset_visuals()
 	_queue_busy = false
 	_terminal_locked = false
 	_apply_interaction_lock()
@@ -223,6 +329,9 @@ func _apply(vm: Dictionary) -> void:
 	battle_hud.bind_view_model(vm)
 	ally_board.bind_team(vm.get("teams", {}).get("ally", {"slots": []}))
 	enemy_board.bind_team(vm.get("teams", {}).get("enemy", {"slots": []}))
+	_side_buffs["ally"] = vm.get("teams", {}).get("ally", {}).get("side_buffs", []).duplicate(true)
+	_side_buffs["enemy"] = vm.get("teams", {}).get("enemy", {}).get("side_buffs", []).duplicate(true)
+	_refresh_side_buffs()
 	ally_heroes.bind_heroes(vm.get("heroes", {}).get("ally", []))
 	enemy_heroes.bind_heroes(vm.get("heroes", {}).get("enemy", []))
 	_sync_hero_panel_heights()
@@ -259,7 +368,7 @@ func _apply_interaction_lock() -> void:
 	var battle: Dictionary = _pending.get("battle", {})
 	var session: Dictionary = _pending.get("session", {})
 	hand_view.set_interaction_state(
-		_queue_busy,
+		false,
 		_terminal_locked,
 		str(battle.get("phase", "")),
 		bool(session.get("halted", false)),
@@ -288,15 +397,23 @@ func _control_for_target(target: Dictionary) -> Control:
 
 
 func _pulse_source(event: Dictionary, duration: float) -> void:
+	# Damage emits damage_applied, unit_damaged, and sometimes unit_blocked for
+	# one hit. Only the first envelope is an attack cue; the rest are feedback.
+	if str(event.get("kind", "")) != "damage" or str(event.get("event_id", "")) != "damage_applied":
+		return
 	var source: Dictionary = event.get("source", {})
 	if source.get("action_phase") != "piece_action":
 		return
+	var action_id := str(source.get("presentation_action_id", ""))
+	if not action_id.is_empty():
+		if _presented_piece_actions.has(action_id):
+			return
+		_presented_piece_actions[action_id] = true
 	var source_slot: Variant = _slot_for_target({
 		"kind": "unit", "side": source.get("side"), "unit_id": source.get("actor_id"),
 	})
 	if source_slot != null:
 		source_slot.present_action(duration)
-		source_slot.present_pulse(duration, Color(1.2, 1.05, 0.55, 1.0))
 
 
 func _spawn_float(scene: PackedScene, event: Dictionary, duration: float) -> void:
@@ -306,11 +423,54 @@ func _spawn_float(scene: PackedScene, event: Dictionary, duration: float) -> voi
 	node.play(duration)
 
 
+func _spawn_damage_float(event: Dictionary, duration: float) -> void:
+	var display := event.duplicate(true)
+	var payload: Dictionary = display.get("payload", {})
+	# The HP delta is authoritative presentation feedback and remains zero for a
+	# full block even if the damage request carried a pre-mitigation amount.
+	# amount is final dealt damage; legacy envelopes fall back to the HP delta.
+	if not payload.has("amount"):
+		payload["amount"] = maxf(0.0, float(payload.get("old_hp", 0.0)) - float(payload.get("new_hp", 0.0)))
+	display["payload"] = payload
+	_spawn_float(DamageFloatScene, display, duration)
+
+
 func _spawn_marker(text: String, event: Dictionary, duration: float) -> void:
 	var node := CombatMarkerScene.instantiate()
 	feedback_layer.add_child(node)
 	node.configure_marker(text, event, resolve_visual_anchor(event.get("visual_target", {})))
 	node.play(duration)
+
+
+func _apply_side_buff_event(side: String, payload: Dictionary) -> void:
+	if not _side_buffs.has(side): return
+	var id := str(payload.get("buff_id", ""))
+	var values: Array = _side_buffs[side]
+	for index in range(values.size() - 1, -1, -1):
+		if str(values[index].get("id", "")) == id: values.remove_at(index)
+	var state: Variant = payload.get("state")
+	if typeof(state) == TYPE_DICTIONARY:
+		var next: Dictionary = state.duplicate(true)
+		next["id"] = id
+		values.append(next)
+	_side_buffs[side] = values
+	_refresh_side_buffs()
+
+
+func _refresh_side_buffs() -> void:
+	ally_side_buffs.text = _side_buff_text(_side_buffs["ally"])
+	enemy_side_buffs.text = _side_buff_text(_side_buffs["enemy"])
+	ally_side_buffs.tooltip_text = ally_side_buffs.text
+	enemy_side_buffs.tooltip_text = enemy_side_buffs.text
+
+
+static func _side_buff_text(values: Array) -> String:
+	var text: Array[String] = []
+	for buff: Dictionary in values:
+		var item := BattlePieceSlot._buff_display_name(buff) + "×" + str(buff.get("stacks", 0))
+		if int(buff.get("turns", 0)) > 0: item += "·%d回合" % int(buff["turns"])
+		text.append(item)
+	return "  ".join(text)
 
 
 func _maybe_start_source_fx(event: Dictionary) -> void:

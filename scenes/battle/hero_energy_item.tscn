@@ -1,11 +1,26 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=7 format=3]
 [ext_resource type="Script" path="res://ui/battle/hero_energy_item.gd" id="script"]
+[ext_resource type="Script" path="res://ui/art/portrait_halo.gd" id="halo"]
+[ext_resource type="Script" path="res://ui/art/enemy_hero_portrait.gd" id="enemy_portrait"]
+[ext_resource type="Script" path="res://ui/art/hero_energy_ring.gd" id="energy_ring"]
 [sub_resource type="StyleBoxEmpty" id="Empty"]
+
+[sub_resource type="StyleBoxFlat" id="HeroFrame"]
+bg_color = Color(0.09, 0.15, 0.12, 0.28)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.56, 0.53, 0.36, 0.48)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
 
 [node name="HeroEnergyItem" type="PanelContainer"]
 custom_minimum_size = Vector2(150, 76)
 size_flags_vertical = 3
-theme_override_styles/panel = SubResource("Empty")
+theme_override_styles/panel = SubResource("HeroFrame")
 script = ExtResource("script")
 
 [node name="Row" type="Control" parent="."]
@@ -20,7 +35,7 @@ anchor_bottom = 1.0
 offset_left = 0.0
 offset_top = 0.0
 offset_right = 0.0
-offset_bottom = -45.0
+offset_bottom = -42.0
 
 
 [node name="PortraitPlaceholder" type="Panel" parent="Row/PortraitFrame"]
@@ -29,6 +44,17 @@ layout_mode = 1
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
+
+[node name="PortraitHalo" type="Control" parent="Row/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("halo")
 
 
 [node name="PlaceholderLabel" type="Label" parent="Row/PortraitFrame/PortraitPlaceholder"]
@@ -49,30 +75,77 @@ mouse_filter = 2
 expand_mode = 1
 stretch_mode = 5
 
+[node name="EnemyPortrait" type="Control" parent="Row/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+visible = false
+script = ExtResource("enemy_portrait")
+
+[node name="EnergyRing" type="Control" parent="Row/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("energy_ring")
+
 [node name="Info" type="VBoxContainer" parent="Row"]
 layout_mode = 1
 anchor_left = 0.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = -44.0
-offset_right = -12.0
+offset_left = 10.0
+offset_top = -41.0
+offset_right = -10.0
 offset_bottom = 0.0
 theme_override_constants/separation = 2
 
 [node name="NameLabel" type="Label" parent="Row/Info"]
 unique_name_in_owner = true
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 15
 
 [node name="EnergyBar" type="ProgressBar" parent="Row/Info"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 4)
 show_percentage = false
 
+[node name="RoleLabel" type="Label" parent="Row/Info"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.63, 0.65, 0.5, 1)
+theme_override_font_sizes/font_size = 10
+horizontal_alignment = 1
+
 [node name="EnergyLabel" type="Label" parent="Row/Info"]
 unique_name_in_owner = true
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 10
+
+[node name="StatusLabel" type="Label" parent="Row/Info"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.85, 0.72, 0.38, 1)
+theme_override_font_sizes/font_size = 10
+horizontal_alignment = 1
+mouse_filter = 2
+max_lines_visible = 2
+autowrap_mode = 2
+text_overrun_behavior = 3
+
+[node name="StatusFlow" type="HFlowContainer" parent="Row/Info"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(0, 58)
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 0
+visible = false
 

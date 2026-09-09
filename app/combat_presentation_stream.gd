@@ -10,11 +10,14 @@ var _batch_sequence := 0
 var _batch_id := "batch-00000000"
 var _events: Array[Dictionary] = []
 var _acknowledged_sequence := 0
+var _presentation_action_sequence := 0
+var _piece_actions: Dictionary = {}
 
 
 func begin_batch(_reason: String) -> String:
 	_batch_sequence += 1
 	_batch_id = "batch-%08d" % _batch_sequence
+	_piece_actions.clear()
 	return _batch_id
 
 
@@ -43,10 +46,13 @@ func append(
 
 
 func capture_damage(event_id: String, payload: Dictionary) -> void:
+	var source := _source_from_payload(payload, "damage")
+	_source_presentation_action(source, event_id, payload)
+	_source_presentation_wave(source, event_id, payload)
 	append(
 		"damage",
 		event_id,
-		_source_from_payload(payload, "damage"),
+		source,
 		_target_from_payload(payload),
 		_without_live_references(payload),
 	)
@@ -147,6 +153,52 @@ func acknowledge_through(sequence: int) -> void:
 
 func sequence() -> int:
 	return _sequence
+
+
+func _source_presentation_action(source: Dictionary, event_id: String, payload: Dictionary) -> void:
+	if source.get("action_phase") != "piece_action":
+		return
+	var signature := "%s|%s|%s|%s" % [
+		str(source.get("type", "")), str(source.get("id", "")),
+		str(source.get("side", "")), str(source.get("actor_id", "")),
+	]
+	var metadata: Dictionary = payload.get("metadata", {})
+	var starts_action := bool(metadata.get("presentation_starts_action", false))
+	var current: Dictionary = _piece_actions.get(signature, {})
+	if event_id == "damage_applied":
+		# PieceAttack marks the first actual target of every strike. Thus an
+		# extra shot, a repeat execute, and every pursuit begin a new action,
+		# while all targets of a general's column strike reuse the same one.
+		# Legacy reaction damage has no marker, so each damage_applied starts it.
+		if starts_action or current.is_empty() or not metadata.has("presentation_starts_action"):
+			_presentation_action_sequence += 1
+			current = {
+				"id": "piece-action-%d" % _presentation_action_sequence,
+			}
+			_piece_actions[signature] = current
+	if not current.is_empty():
+		source["presentation_action_id"] = current["id"]
+
+
+func _source_presentation_wave(source: Dictionary, event_id: String, payload: Dictionary) -> void:
+	# Hero handlers opt in with a per-cast hit index.  The batch and canonical
+	# source signature keep two casts of the same skill distinct, while targets
+	# belonging to one hit resolve in one visual wave.
+	if event_id != "damage_applied" or source.get("action_phase") != "skill_action":
+		return
+	var metadata: Variant = payload.get("metadata", {})
+	if typeof(metadata) != TYPE_DICTIONARY or not metadata.has("presentation_wave_index"):
+		return
+	var wave_index: Variant = metadata["presentation_wave_index"]
+	if typeof(wave_index) != TYPE_INT or int(wave_index) < 0:
+		return
+	source["presentation_wave_id"] = "skill-wave:%s:%s|%s|%s|%s:%d" % [
+		_batch_id,
+		str(source.get("type", "")), str(source.get("id", "")),
+		str(source.get("side", "")), str(source.get("actor_id", "")),
+		int(wave_index),
+	]
+	source["presentation_hit_index"] = int(wave_index)
 
 
 static func _source_from_payload(payload: Dictionary, fallback: String) -> Dictionary:

@@ -356,7 +356,9 @@ static func _fist_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 	var dealt_total := 0.0
 	var hits := 0
 	for target: Dictionary in targets:
-		var result := _apply_damage(target, contexts_by_id[target["id"]], ports, errors)
+		var result := _apply_damage(target, contexts_by_id[target["id"]], ports, errors, {
+			"presentation_wave_index": 0,
+		})
 		if result.is_empty():
 			return _committed_failure(
 				"fist exclusive damage failed", growth_committed or hits > 0, errors,
@@ -449,7 +451,11 @@ static func _fist_ultimate(context: Dictionary, ports: Variant) -> Dictionary:
 			current = _random_pick(alive, rng, errors)
 			if not errors.is_empty() or current == null:
 				return _committed_failure("fist ultimate retarget RNG failed", hits > 0, errors)
-		var result := _apply_damage(current, contexts_by_id[current["id"]], ports, errors)
+		# Each ultimate strike is a new visual wave.  A future multi-target strike
+		# can share this index without collapsing the following strike.
+		var result := _apply_damage(current, contexts_by_id[current["id"]], ports, errors, {
+			"presentation_wave_index": hits,
+		})
 		if result.is_empty():
 			return _committed_failure("fist ultimate damage failed", hits > 0, errors)
 		remaining -= 1
@@ -677,11 +683,12 @@ static func _apply_damage(
 	damage_context: Dictionary,
 	ports: Variant,
 	errors: Array[String],
+	metadata: Dictionary = {},
 ) -> Dictionary:
 	var damage: Variant = ports.service("damage", errors)
 	if not errors.is_empty():
 		return {}
-	var result: Variant = damage.apply(target, damage_context, {}, errors)
+	var result: Variant = damage.apply(target, damage_context, metadata, errors)
 	if not _valid_damage_result(result):
 		if errors.is_empty():
 			errors.append("damage service returned a non-canonical result")

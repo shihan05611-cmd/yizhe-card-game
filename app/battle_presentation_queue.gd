@@ -102,6 +102,10 @@ func event_duration_ms(event: Dictionary) -> int:
 		return 1500 if event.get("payload", {}).get("card_category") == "ultimate" else 360
 	if kind == "damage":
 		if event_id == "damage_applied":
+			# A piece hit owns its whole read: wind-up, impact feedback, and
+			# recovery.  Other damage sources retain the compact feedback pace.
+			if event.get("source", {}).get("action_phase") == "piece_action":
+				return 440
 			return 280
 		if event_id == "unit_blocked":
 			return 160
@@ -184,19 +188,59 @@ func _canonical_events(events: Array) -> Array[Dictionary]:
 
 func _build_segments(events: Array[Dictionary]) -> Array[Dictionary]:
 	var segments: Array[Dictionary] = []
-	for event: Dictionary in events:
-		var duration := event_duration_ms(event)
-		var group_with_previous: bool = (
-			event.get("kind") == "buff"
-			and not segments.is_empty()
-			and segments[-1]["events"][-1].get("kind") == "buff"
-			and segments[-1]["events"][-1].get("batch_id") == event.get("batch_id")
-		)
-		if group_with_previous:
-			segments[-1]["events"].append(event)
-			segments[-1]["base_duration_ms"] = maxi(
-				int(segments[-1]["base_duration_ms"]), duration
-			)
-		else:
-			segments.append({"events": [event], "base_duration_ms": duration})
+	var grouped_indices := {}
+	for index in events.size():
+		if grouped_indices.has(index):
+			continue
+		var event: Dictionary = events[index]
+		var wave_id := _damage_wave_id(event)
+		if not wave_id.is_empty():
+			var wave_events: Array[Dictionary] = []
+			for candidate_index in range(index, events.size()):
+				if grouped_indices.has(candidate_index):
+					continue
+				var candidate: Dictionary = events[candidate_index]
+				if _damage_wave_id(candidate) != wave_id:
+					continue
+				grouped_indices[candidate_index] = true
+				wave_events.append(candidate)
+			_append_segment(segments, wave_events)
+			continue
+		_append_segment(segments, [event])
 	return segments
+
+
+func _append_segment(segments: Array[Dictionary], events: Array[Dictionary]) -> void:
+	if events.is_empty():
+		return
+	var event: Dictionary = events[0]
+	var duration := event_duration_ms(event)
+	var group_with_previous: bool = (
+		events.size() == 1
+		and event.get("kind") == "buff"
+		and not segments.is_empty()
+		and segments[-1]["events"][-1].get("kind") == "buff"
+		and segments[-1]["events"][-1].get("batch_id") == event.get("batch_id")
+	)
+	if group_with_previous:
+		segments[-1]["events"].append(event)
+		segments[-1]["base_duration_ms"] = maxi(int(segments[-1]["base_duration_ms"]), duration)
+		return
+	var max_duration := duration
+	for wave_event: Dictionary in events:
+		max_duration = maxi(max_duration, event_duration_ms(wave_event))
+	segments.append({"events": events, "base_duration_ms": max_duration})
+
+
+func _damage_wave_id(event: Dictionary) -> String:
+	if event.get("kind") != "damage" or event.get("event_id") != "damage_applied":
+		return ""
+	var source: Variant = event.get("source", {})
+	if typeof(source) != TYPE_DICTIONARY:
+		return ""
+	var skill_wave := str(source.get("presentation_wave_id", ""))
+	if not skill_wave.is_empty():
+		return skill_wave
+	if source.get("action_phase") != "piece_action":
+		return ""
+	return str(source.get("presentation_action_id", ""))

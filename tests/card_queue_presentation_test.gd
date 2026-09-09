@@ -22,6 +22,15 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("seven hand nodes remain stable for the whole presentation queue", func() -> void:
 		_test_seven_card_stability(harness)
 	)
+	harness.run_test("waiting queue accepts a rapid second drag, blocks end turn, and returns stale cards", func() -> void:
+		_test_waiting_queue(harness)
+	)
+	harness.run_test("burn setup refreshes a visible detonation card before the first presentation finishes", func() -> void:
+		_test_burn_followup_availability(harness)
+	)
+	harness.run_test("return-on-play card flies from settlement back to its original hand instance", func() -> void:
+		_test_return_to_hand_presentation(harness)
+	)
 	print("M4-5 CARD QUEUE PRESENTATION TESTS: tests=%d assertions=%d failures=%d" % [
 		harness.tests - before_tests,
 		harness.assertions - before_assertions,
@@ -38,13 +47,12 @@ func _test_single_submission(harness: TestHarness) -> void:
 	if card.is_empty():
 		root.free()
 		return
-	var ids_before := _card_node_ids(root.battle_screen.hand_view)
 	root.battle_screen.hand_view.play_card_requested.emit(_guard(card))
 	harness.assert_true(root.presentation_queue.is_busy())
 	harness.assert_true(root.battle_screen.is_input_locked())
 	root.battle_screen.hand_view.play_card_requested.emit(_guard(card))
 	harness.assert_equal(root.logic_submission_count(), 1)
-	harness.assert_equal(_card_node_ids(root.battle_screen.hand_view), ids_before)
+	harness.assert_equal(root.battle_screen.hand_view.card_count(), root.controller.view_model()["hand"].size(), "the releasing card leaves the hand fan for its queue representation")
 	root.presentation_queue.drain_for_test()
 	harness.assert_false(root.presentation_queue.is_busy())
 	harness.assert_equal(root.battle_screen.hand_view.card_count(), root.controller.view_model()["hand"].size())
@@ -123,6 +131,107 @@ func _test_seven_card_stability(harness: TestHarness) -> void:
 	screen.free()
 
 
+func _test_waiting_queue(harness: TestHarness) -> void:
+	var root: Variant = _root("m4-waiting-queue")
+	root.presentation_queue.drain_for_test()
+	var card := _first_playable(root.controller.view_model())
+	harness.assert_false(card.is_empty())
+	if card.is_empty():
+		root.free()
+		return
+	var card_view: Variant = root.battle_screen.hand_view.card_for_instance(str(card.get("instance_id", "")))
+	harness.assert_not_null(card_view, "the real hand card is available for drag input")
+	if card_view == null:
+		root.free()
+		return
+	_drag_play(card_view)
+	_drag_play(card_view)
+	harness.assert_equal(root.logic_submission_count(), 1, "only queue head submits during its animation")
+	harness.assert_equal(root.battle_screen.pending_card_count(), 1, "duplicate drag does not enter a second time while its first release is active")
+	harness.assert_equal(root.battle_screen.hand_view.call("_global_lock_reason"), "", "presentation busy does not disable the rest of the hand")
+	harness.assert_false(root.battle_screen.battle_hud.end_turn_button.visible)
+	harness.assert_equal(root.submit_end_turn(), null, "end turn cannot move behind waiting cards")
+	root.presentation_queue.drain_for_test()
+	harness.assert_equal(root.battle_screen.pending_card_count(), 0, "stale waiting card is returned, not retained")
+	harness.assert_true(root.battle_screen.battle_hud.end_turn_button.visible)
+	harness.assert_equal(_count_event(root.controller.presentation_events(), "card"), 1, "duplicate did not spend or replay a card")
+	root.free()
+
+
+func _test_burn_followup_availability(harness: TestHarness) -> void:
+	var root: Variant = MainScene.instantiate()
+	root.auto_start = false
+	root.battle_seed = "m4-burn-followup"
+	var skills: Array[String] = ["markBurn", "pieceBlock"]
+	root.free_skill_ids = skills
+	Engine.get_main_loop().root.add_child(root)
+	harness.assert_true(root.start_battle())
+	root.presentation_queue.drain_for_test()
+	var burn := _card_by_skill(root.controller.view_model(), "markBurn")
+	var detonate := _card_by_skill(root.controller.view_model(), "burn01")
+	harness.assert_false(burn.is_empty())
+	harness.assert_false(detonate.is_empty())
+	if burn.is_empty() or detonate.is_empty():
+		root.free()
+		return
+	harness.assert_false(bool(detonate.get("playable", true)), "焚炎 is unavailable before an enemy has burn")
+	var burn_view: Variant = root.battle_screen.hand_view.card_for_instance(str(burn.get("instance_id", "")))
+	_drag_play(burn_view)
+	harness.assert_true(root.presentation_queue.is_busy(), "burn presentation must still be active")
+	var detonate_view: Variant = root.battle_screen.hand_view.card_for_instance(str(detonate.get("instance_id", "")))
+	harness.assert_not_null(detonate_view)
+	harness.assert_true(bool(_card_by_skill(root.controller.view_model(), "burn01").get("playable", false)), "controller enables 焚炎 immediately")
+	harness.assert_true(detonate_view.is_playable(), "current controller availability enables the visible burn follow-up")
+	_drag_play(detonate_view)
+	harness.assert_equal(root.battle_screen.pending_card_count(), 2, "enabled follow-up enters waiting during burn presentation")
+	root.free()
+
+
+func _test_return_to_hand_presentation(harness: TestHarness) -> void:
+	var screen: Variant = BattleScreenScene.instantiate()
+	Engine.get_main_loop().root.add_child(screen)
+	var vm := _static_vm(2)
+	var shadow: Dictionary = vm["hand"][0]
+	shadow["card_id"] = "exclusive:shadow"
+	shadow["source_skill_id"] = "shadow"
+	shadow["category"] = "exclusive"
+	shadow["play_destination"] = "hand"
+	screen.bind_view_model(vm)
+	var instance_id := str(shadow["instance_id"])
+	screen.set_pending_cards([{
+		"instance_id": instance_id, "name": shadow["name"], "state": "releasing", "card": shadow,
+	}])
+	screen.set_pending_card_instances([instance_id])
+	harness.assert_equal(screen.hand_view.card_count(), 1)
+	screen.present_event({
+		"kind": "card", "payload": {"card_instance_id": instance_id, "destination": "hand"},
+	}, 0.2)
+	var returned: Variant = screen.hand_view.card_for_instance(instance_id)
+	harness.assert_not_null(returned)
+	harness.assert_equal(screen.hand_view.card_count(), 2)
+	harness.assert_false(returned.visible, "hand target remains hidden until the settlement flight arrives")
+	harness.assert_true(absf(returned.rotation) > 0.001, "test uses a real fanned hand rotation")
+	harness.assert_not_null(screen._pending_card_queue.flight_card(instance_id))
+	screen._pending_card_queue._advance_return(instance_id, returned, 0.5)
+	var flight: Variant = screen._pending_card_queue.flight_card(instance_id)
+	harness.assert_true(flight.global_position.distance_to(returned.global_position) > 1.0)
+	screen._pending_card_queue._advance_return(instance_id, returned, 1.0)
+	harness.assert_true(flight.global_position.distance_to(returned.global_position) < 0.01)
+	harness.assert_true(flight.scale.distance_to(returned.scale) < 0.01)
+	harness.assert_true(is_equal_approx(flight.rotation, returned.rotation))
+	screen.cancel_pending_return_flights()
+	screen.set_pending_cards([])
+	harness.assert_equal(screen._pending_card_queue.flight_count(), 0)
+	harness.assert_false(screen._pending_card_queue.visible, "terminal cleanup removes an unfinished return flight")
+	screen.free()
+
+
+static func _drag_play(card_view: Control) -> void:
+	var origin := card_view.global_position + card_view.size * 0.5
+	card_view.begin_drag_at(origin)
+	card_view.end_drag_at(origin - Vector2(0.0, 100.0))
+
+
 func _root(seed: String) -> Variant:
 	var root: Variant = MainScene.instantiate()
 	root.battle_seed = seed
@@ -140,6 +249,13 @@ static func _first_playable(vm: Dictionary) -> Dictionary:
 static func _card_by_instance(vm: Dictionary, instance_id: String) -> Dictionary:
 	for card: Dictionary in vm.get("hand", []):
 		if card.get("instance_id") == instance_id:
+			return card
+	return {}
+
+
+static func _card_by_skill(vm: Dictionary, skill_id: String) -> Dictionary:
+	for card: Dictionary in vm.get("hand", []):
+		if str(card.get("source_skill_id", "")) == skill_id:
 			return card
 	return {}
 

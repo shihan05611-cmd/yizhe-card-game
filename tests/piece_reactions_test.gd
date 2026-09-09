@@ -160,6 +160,10 @@ func _test_counter_sp(harness: TestHarness) -> void:
 	harness.assert_equal(upgraded["attacker"]["hp"], 80.0)
 	harness.assert_equal(upgraded["request"]["state"]["sp"], 4.0)
 	harness.assert_equal(hero["energy"], 25.0)
+	harness.assert_equal(upgraded["content_events"].size(), 1)
+	harness.assert_equal(upgraded["content_events"][0]["event_id"], "skillPointSpent")
+	harness.assert_equal(upgraded["content_events"][0]["payload"]["amount"], 1)
+	harness.assert_equal(upgraded["content_events"][0]["payload"]["source_side"], "ally")
 	for value: Variant in upgraded["request"].values():
 		harness.assert_false(typeof(value) == TYPE_CALLABLE)
 
@@ -171,6 +175,7 @@ func _test_counter_sp(harness: TestHarness) -> void:
 	harness.assert_equal(result["value"]["counter_kind"], "super")
 	harness.assert_equal(enemy_upgraded["request"]["state"]["enemy_sp"], 4.0)
 	harness.assert_equal(enemy_upgraded["attacker"]["hp"], 80.0)
+	harness.assert_equal(enemy_upgraded["content_events"], [])
 
 
 func _test_chivalry(harness: TestHarness) -> void:
@@ -186,6 +191,7 @@ func _test_chivalry(harness: TestHarness) -> void:
 	harness.assert_false(fixture["buffs"].has_unit(fixture["defender"], "knightChivalry"))
 	harness.assert_equal(fixture["request"]["state"]["enemy_sp"], 0.0)
 	harness.assert_equal(hero["energy"], 100.0)
+	harness.assert_equal(fixture["content_events"], [])
 
 
 func _test_counter_enchant_order(harness: TestHarness) -> void:
@@ -283,6 +289,7 @@ func _fixture(
 	}, damage_errors)
 	assert(damage_errors.is_empty())
 	var heal_records: Array = []
+	var content_events: Array = []
 	var action_map := {}
 	for action_id: String in CombatPortsScript.REQUIRED_ACTION_IDS:
 		action_map[action_id] = func(request: Dictionary) -> Dictionary:
@@ -290,6 +297,8 @@ func _fixture(
 				heal_records.append(request.duplicate(true))
 				if fail_record_heal:
 					return CombatPortsScript.fail("injected record_heal failure")
+			elif action_id == "emit_content_event":
+				content_events.append(request.duplicate(true))
 			return CombatPortsScript.ok(null)
 	var port_errors: Array[String] = []
 	var ports := CombatPortsScript.new({
@@ -307,10 +316,11 @@ func _fixture(
 			"state": state,
 			"attacker_side": attacker_side, "attacker_id": attacker["id"],
 			"defender_side": defender_side, "defender_id": defender["id"],
-			"primary_hit": hit, "permanent_buffs": [],
+			"primary_hit": hit, "defender_alive_after_primary_hit": not defender_died,
+			"permanent_buffs": [],
 		},
 		"ports": ports, "buffs": buffs, "attacker": attacker, "defender": defender,
-		"heal_records": heal_records,
+		"heal_records": heal_records, "content_events": content_events,
 	}
 
 

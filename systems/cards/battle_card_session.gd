@@ -28,7 +28,10 @@ var _valid := false
 
 func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 	errors.clear()
-	if not _exact_keys(config, CONFIG_KEYS, "battle card session config", errors):
+	var expected_keys: Array = CONFIG_KEYS.duplicate()
+	if typeof(config) == TYPE_DICTIONARY and config.has("exclusive_card_ids"):
+		expected_keys.append("exclusive_card_ids")
+	if not _exact_keys(config, expected_keys, "battle card session config", errors):
 		return
 	var runtime: Variant = config["battle_runtime"]
 	if (
@@ -83,6 +86,7 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 		"exclusive_catalog": catalogs["hero_abilities"]["exclusive"],
 		"deployed_hero_ids": config["deployed_hero_ids"],
 		"free_skill_ids": config["free_skill_ids"],
+		"exclusive_card_ids": config.get("exclusive_card_ids", []),
 	})
 	if not assembled["ok"]:
 		errors.append(assembled["error"])

@@ -15,6 +15,7 @@ const FreeSkillEffectsScript = preload("res://systems/effects/free_skill_effects
 const FlameFateEffectsScript = preload("res://systems/effects/hero_effects_flame_fate.gd")
 const MarshalFistEffectsScript = preload("res://systems/effects/hero_effects_marshal_fist.gd")
 const SiegePuppetShadowEffectsScript = preload("res://systems/effects/hero_effects_siege_puppet_shadow.gd")
+const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
 const GrowthPortScript = preload("res://systems/growth/growth_port.gd")
 const HookDispatcherScript = preload("res://systems/relics/hook_dispatcher.gd")
 const RelicSystemScript = preload("res://systems/relics/relic_system.gd")
@@ -534,9 +535,10 @@ static func _preflight(config: Variant, errors: Array[String]) -> Dictionary:
 	for group: String in ["exclusive", "ultimate"]:
 		for definition: Variant in catalogs["hero_abilities"][group].values():
 			expected_ids.append(definition.handler_id)
+	expected_ids.append_array(HeroCardCatalog.handler_ids())
 	expected_ids.sort()
-	if expected_ids.size() != 29 or _has_duplicate(expected_ids):
-		errors.append("M1 effect authority must expose 29 unique handler ids")
+	if _has_duplicate(expected_ids):
+		errors.append("M1 effect authority must expose unique handler ids")
 		return {}
 	var authored_ids: Array[String] = []
 	for handler_map: Dictionary in [

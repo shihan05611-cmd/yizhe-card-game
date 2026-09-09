@@ -73,7 +73,13 @@ func _test_six_slot_board(harness: TestHarness) -> void:
 		harness.assert_equal(slots[index].scene_file_path, "res://scenes/battle/piece_slot.tscn")
 	harness.assert_equal(board.get_node("Grid").columns, 2)
 	harness.assert_equal(slots[0].get_node("Content/ClassLine/ClassLabel").text, "棋子")
-	harness.assert_equal(slots[1].get_node("Content/ClassLine/ClassLabel").text, "空位")
+	# Empty formation cells remain structural slots but deliberately carry no
+	# piece identity, health, death state, or tooltip.
+	harness.assert_equal(slots[1].get_node("Content/ClassLine/ClassLabel").text, "")
+	harness.assert_false(slots[1].get_node("Content/ChessArt").visible)
+	harness.assert_false(slots[1].get_node("Content/HpStack/HpBar").visible)
+	harness.assert_false(slots[1].get_node("DeathMark").visible)
+	harness.assert_equal(slots[1].tooltip_text, "")
 	harness.assert_true(slots[2].get_node("DeathMark").visible)
 	harness.assert_true(slots[2].get_node("Content/ClassLine/NameStrike").visible)
 	_release(board)

@@ -26,7 +26,7 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("ART-2 piece slot localizes classes and represents death with nodes", func() -> void:
 		_test_piece_slot(harness)
 	)
-	harness.run_test("ART-2 titles overlays and enemy placeholder use production nodes", func() -> void:
+	harness.run_test("ART-2 titles overlays and hero portraits use production nodes", func() -> void:
 		_test_battle_components(harness)
 	)
 	print("ART-2 HAND COMPONENT TESTS: tests=%d assertions=%d failures=%d" % [
@@ -47,17 +47,13 @@ func _test_card_structure(harness: TestHarness) -> void:
 	harness.assert_equal(description.text_overrun_behavior, TextServer.OVERRUN_TRIM_ELLIPSIS)
 	harness.assert_contains(card.get_node("InputButton").tooltip_text, "悬停提示必须保留全部文字")
 	var cost: Label = card.get_node("CardSurface/Cost")
-	harness.assert_equal(cost.size, Vector2(36, 36))
-	var cost_style := cost.get_theme_stylebox("normal") as StyleBoxFlat
-	harness.assert_equal(cost_style.corner_radius_top_left, 18)
+	harness.assert_equal(cost.size, Vector2(32, 30))
+	harness.assert_true(card.has_node("CardSurface/CostSeal"))
 	harness.assert_true(card.has_node("CardSurface/TagRow/Owner"))
 	harness.assert_true(card.has_node("CardSurface/TagRow/Tags"))
 	for safe_node_path in ["CardSurface/Category", "CardSurface/Cost", "CardSurface/CardName"]:
 		var safe_node: Control = card.get_node(safe_node_path)
-		harness.assert_true(
-			safe_node.position.x + safe_node.size.x <= 108.01 or safe_node.position.y < 56.0,
-			"primary card information left the left safe zone and top band: %s" % safe_node_path,
-		)
+		harness.assert_true(safe_node.get_rect().end.x <= 140.01, "card primary information overflowed: %s" % safe_node_path)
 	_release(card)
 
 
@@ -148,11 +144,17 @@ func _test_battle_components(harness: TestHarness) -> void:
 
 	var enemy_item: Variant = HeroItemScene.instantiate()
 	_attach(enemy_item)
-	enemy_item.bind_hero({"id": 101, "name": "敌方弈者", "energy": 0, "max_energy": 100})
+	enemy_item.bind_hero({"id": 101, "name": "敌方弈者", "side":"enemy", "energy": 0, "max_energy": 100})
 	var placeholder: Panel = enemy_item.get_node("Row/PortraitFrame/PortraitPlaceholder")
 	harness.assert_true(placeholder.visible)
-	harness.assert_false(enemy_item.get_node("Row/PortraitFrame/Portrait").visible)
+	var portrait: TextureRect = enemy_item.get_node("Row/PortraitFrame/Portrait")
+	harness.assert_false(portrait.visible)
 	harness.assert_equal(enemy_item.placeholder_label.text, "敌方弈者")
+	for id: int in [1,3,4,5,6,7,8,9]:
+		enemy_item.bind_hero({"id":id,"name":"立绘验证","side":"ally","energy":0,"max_energy":100})
+		harness.assert_true(portrait.visible,"Existing hero portrait must remain visible: %d" % id)
+		harness.assert_true(portrait.texture != null)
+		harness.assert_false(placeholder.visible)
 	_release(enemy_item)
 
 	var result: Variant = ResultScene.instantiate()

@@ -14,15 +14,26 @@ func run(harness: RefCounted) -> void:
 				piece.bind_slot(vm)
 				harness.assert_equal(vm, before)
 				harness.assert_equal(piece.class_label.text, kinds[kind][0])
-				var atlas: AtlasTexture = piece.chess_art.texture
-				harness.assert_equal(atlas.atlas.resource_path, "res://ui/art/pieces/%s-%s.svg" % [kinds[kind][1], side])
-				harness.assert_equal(atlas.region, Rect2(0, 0, 220, 252))
+				# The approved HTML now renders natively; verify identity and clock,
+				# replacing the obsolete SVG-atlas frame assertions.
+				harness.assert_equal(piece.chess_art.kind, kind)
+				harness.assert_equal(piece.chess_art.enemy, side == "enemy")
+				harness.assert_equal(piece.chess_art.pose, 0.0)
 				piece.present_action(1.0)
 				piece._action_tween.custom_step(0.35)
-				harness.assert_equal(atlas.region.position.x, 1760.0)
+				# The approved presentation reaches its peak at 38% of the action,
+				# so 0.35s is intentionally still in the rising segment (0.35/0.38).
+				# Verify a pronounced action pose without freezing that timing ratio.
+				harness.assert_true(piece.chess_art.pose > 0.9 and piece.chess_art.pose < 1.0)
+				if kind == "crossbow":
+					piece._shot_tween.custom_step(0.35)
+					var progress: float = piece.chess_art.shot_progress
+					piece._shot_tween.custom_step(0.35)
+					harness.assert_true(piece.chess_art.shot_progress > progress, "projectile moves forward while the body returns")
 				piece.bind_slot(vm)
-				harness.assert_equal(atlas.region.position.x, 0.0)
+				harness.assert_equal(piece.chess_art.pose, 0.0)
+				harness.assert_equal(piece.chess_art.shot_progress, -1.0)
 		piece.set_empty(1)
-		harness.assert_equal(piece.chess_art.texture, null)
+		harness.assert_false(piece.chess_art.visible)
 		piece.free()
 	)

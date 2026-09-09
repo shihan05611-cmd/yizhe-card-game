@@ -65,6 +65,17 @@ static func assemble(config: Variant) -> Dictionary:
 			)
 		card_ids.append(exclusive_card_id)
 
+	# Rewards add independent copies; initial owner cards above remain one each.
+	for card_id: String in config.get("exclusive_card_ids", []):
+		var extra: Variant = config["card_catalog"].get(card_id)
+		if (
+			not _exact_card(extra)
+			or extra.card_category != CardDefinitionScript.CATEGORY_EXCLUSIVE
+			or extra.owner_hero_id not in normalized_roster
+		):
+			return CombatPortsScript.fail("battle deck exclusive card requires its deployed owner: %s" % card_id)
+		card_ids.append(card_id)
+
 	var build_errors: Array[String] = []
 	var definitions: Array[Resource] = CardCatalogScript.build_deck_from_card_ids(
 		config["card_catalog"], card_ids, build_errors
@@ -76,18 +87,19 @@ static func assemble(config: Variant) -> Dictionary:
 		"definitions": definitions,
 		"deployed_hero_ids": normalized_roster,
 		"free_skill_ids": normalized_free_skill_ids,
+		"exclusive_card_ids": config.get("exclusive_card_ids", []).duplicate(),
 		"active_hero_count": normalized_roster.size(),
 	})
 
 
 static func _validate_config(config: Variant) -> String:
-	if typeof(config) != TYPE_DICTIONARY or config.size() != CONFIG_KEYS.size():
+	if typeof(config) != TYPE_DICTIONARY:
 		return "battle deck config must have a canonical closed shape"
 	for key: String in CONFIG_KEYS:
 		if not config.has(key):
 			return "battle deck config.%s is required" % key
 	for key: Variant in config:
-		if typeof(key) != TYPE_STRING or key not in CONFIG_KEYS:
+		if typeof(key) != TYPE_STRING or (key not in CONFIG_KEYS and key != "exclusive_card_ids"):
 			return "battle deck config contains an unknown field"
 	if typeof(config["card_catalog"]) != TYPE_DICTIONARY or config["card_catalog"].is_empty():
 		return "battle deck card_catalog must be non-empty"
@@ -99,6 +111,11 @@ static func _validate_config(config: Variant) -> String:
 		return "battle deck deployed_hero_ids must be a non-empty Array"
 	if typeof(config["free_skill_ids"]) != TYPE_ARRAY:
 		return "battle deck free_skill_ids must be an Array"
+	if typeof(config.get("exclusive_card_ids", [])) != TYPE_ARRAY:
+		return "battle deck exclusive_card_ids must be an Array"
+	for card_id: Variant in config.get("exclusive_card_ids", []):
+		if typeof(card_id) != TYPE_STRING or card_id.is_empty() or card_id != card_id.strip_edges():
+			return "battle deck exclusive_card_ids must contain non-empty trimmed strings"
 	var seen_heroes := {}
 	for hero_id: Variant in config["deployed_hero_ids"]:
 		if typeof(hero_id) != TYPE_INT or hero_id <= 0:

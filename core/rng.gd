@@ -28,6 +28,27 @@ static func seeded(seed: Variant) -> DeterministicRng:
 	return DeterministicRng.new(seed)
 
 
+static func from_state(state: Variant, errors: Array[String] = []) -> Variant:
+	errors.clear()
+	var normalized_state: Variant = state
+	if (
+		typeof(normalized_state) == TYPE_FLOAT
+		and is_finite(normalized_state)
+		and normalized_state == floor(normalized_state)
+	):
+		normalized_state = int(normalized_state)
+	if (
+		typeof(normalized_state) != TYPE_INT
+		or normalized_state < 0
+		or normalized_state > UINT32_MASK
+	):
+		errors.append("deterministic RNG state must be an unsigned 32-bit integer")
+		return null
+	var restored := DeterministicRng.new(MULBERRY_INCREMENT)
+	restored._state = normalized_state
+	return restored
+
+
 static func normalize_seed(seed: Variant) -> int:
 	if typeof(seed) == TYPE_INT:
 		return _u32(seed)

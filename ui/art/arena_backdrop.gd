@@ -1,7 +1,15 @@
 extends Control
 ## Presentation only. Shared jade board and the approved ink/paper palette.
 
+var _board_rect := Rect2()
+
+## Bounds in this Control's local coordinates; layout owns the final placement.
+func set_board_rect(rect: Rect2) -> void:
+	_board_rect = rect
+	queue_redraw()
+
 func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(queue_redraw)
 	var palette := Theme.new()
 	var typeface := SystemFont.new()
@@ -32,21 +40,25 @@ func _ready() -> void:
 	get_parent().theme = palette
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color("18261f"))
-	var board := Rect2(219, 70, size.x - 438, size.y - 327)
-	var slab := StyleBoxFlat.new()
-	slab.bg_color = Color("34473b")
-	slab.border_color = Color("7a7954")
-	slab.set_border_width_all(1)
-	slab.set_corner_radius_all(12)
-	slab.shadow_color = Color(0, 0, 0, 0.22)
-	slab.shadow_size = 15
-	draw_style_box(slab, board)
-	draw_rect(board.grow(-9), Color("6c7452"), false, 1)
-	var mid := size.x * 0.5
-	draw_line(Vector2(mid, board.position.y + 24), Vector2(mid, board.end.y - 24), Color(0.72, 0.69, 0.47, 0.22), 1)
-	for row in range(1, 3):
-		var y := board.position.y + board.size.y * row / 3.0
-		draw_line(Vector2(board.position.x + 20, y), Vector2(board.end.x - 20, y), Color(0.72, 0.69, 0.47, 0.09), 1)
-	draw_line(Vector2(30, 66), Vector2(size.x - 30, 66), Color("48503a"), 1)
-	draw_line(Vector2(155, size.y - 255), Vector2(size.x - 155, size.y - 255), Color("48503a"), 1)
+	if size.x <= 0 or size.y <= 0:
+		return
+	# A continuous dark surface: the army positions supply order, not grid lines.
+	for row in range(64):
+		var t := float(row) / 64.0
+		var wash := Color("1b2d25").lerp(Color("13221c"),t)
+		draw_rect(Rect2(0,size.y*t,size.x,size.y/64.0),wash)
+	var center := size*Vector2(0.5,0.4)
+	var extent := size*Vector2(0.47,0.44)
+	if _board_rect.has_area():
+		center = _board_rect.get_center()
+		extent = _board_rect.size*Vector2(0.72,0.82)
+	# A feathered wash has no visible rectangular edge or river division.
+	for i in range(64):
+		var first := center+Vector2(cos(TAU*i/64.0),sin(TAU*i/64.0))*extent
+		var last := center+Vector2(cos(TAU*(i+1)/64.0),sin(TAU*(i+1)/64.0))*extent
+		draw_polygon(PackedVector2Array([center,first,last]),PackedColorArray([Color(0.30,0.39,0.29,0.13),Color(0.30,0.39,0.29,0),Color(0.30,0.39,0.29,0)]))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 74129
+	for i in range(1500):
+		var point := Vector2(rng.randf()*size.x,rng.randf()*size.y)
+		draw_rect(Rect2(point,Vector2.ONE*0.7),Color(0.68,0.74,0.59,rng.randf_range(0.009,0.022)))

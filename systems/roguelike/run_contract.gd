@@ -34,6 +34,7 @@ const STATE_KEYS := [
 	"map_nodes",
 	"relic_ids",
 	"free_skill_ids",
+	"exclusive_card_ids",
 	"reward_options",
 	"shop_options",
 	"initial_hero_choice_ids",
@@ -62,6 +63,9 @@ static func create() -> Dictionary:
 		"map_nodes": [],
 		"relic_ids": [],
 		"free_skill_ids": [],
+		# Extra acquired active-exclusive card copies. The base copy for each
+		# deployed hero is assembled separately and is never recorded here.
+		"exclusive_card_ids": [],
 		"reward_options": [],
 		"shop_options": [],
 		"initial_hero_choice_ids": [],
@@ -127,6 +131,8 @@ static func validate(state: Variant, errors: Array[String] = []) -> bool:
 	# Deliberately allow duplicates: each entry is one owned card copy.
 	if not _string_id_array(state["free_skill_ids"], "run state.free_skill_ids", true, errors):
 		return false
+	if not _string_id_array(state["exclusive_card_ids"], "run state.exclusive_card_ids", true, errors):
+		return false
 	for field in ["initial_hero_choice_ids", "front_hero_ids", "back_hero_ids"]:
 		if not _hero_id_array(state[field], "run state.%s" % field, errors):
 			return false
@@ -174,10 +180,16 @@ static func transition(
 
 
 static func _default_piece_slots() -> Array:
-	var slots: Array = []
-	for slot in range(1, 7):
-		slots.append({"slot": slot, "hp_ratio": 1.0})
-	return slots
+	# Empty positions are explicit. A defeated deployed piece keeps its class id
+	# with hp_ratio 0.0, while an unused position carries a null class id.
+	return [
+		{"slot": 1, "hp_ratio": 1.0, "piece_class_id": null},
+		{"slot": 2, "hp_ratio": 1.0, "piece_class_id": "shield"},
+		{"slot": 3, "hp_ratio": 1.0, "piece_class_id": null},
+		{"slot": 4, "hp_ratio": 1.0, "piece_class_id": "assassin"},
+		{"slot": 5, "hp_ratio": 1.0, "piece_class_id": "crossbow"},
+		{"slot": 6, "hp_ratio": 1.0, "piece_class_id": "banner"},
+	]
 
 
 static func _piece_slots(value: Variant, errors: Array[String]) -> bool:
@@ -187,13 +199,17 @@ static func _piece_slots(value: Variant, errors: Array[String]) -> bool:
 	for index in value.size():
 		var path := "run state.piece_slots[%d]" % index
 		var entry: Variant = value[index]
-		if not _closed_dictionary(entry, path, ["slot", "hp_ratio"], errors):
+		if not _closed_dictionary(entry, path, ["slot", "hp_ratio", "piece_class_id"], errors):
 			return false
 		if typeof(entry["slot"]) != TYPE_INT or entry["slot"] != index + 1:
 			errors.append("%s.slot must equal %d" % [path, index + 1])
 			return false
 		if not _finite_number(entry["hp_ratio"]) or float(entry["hp_ratio"]) < 0.0 or float(entry["hp_ratio"]) > 1.0:
 			errors.append("%s.hp_ratio must be a finite number from 0 through 1" % path)
+			return false
+		var class_id: Variant = entry["piece_class_id"]
+		if class_id != null and not _non_empty_string(class_id):
+			errors.append("%s.piece_class_id must be null or a non-empty string" % path)
 			return false
 	return true
 

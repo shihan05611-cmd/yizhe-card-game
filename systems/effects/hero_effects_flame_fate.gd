@@ -354,7 +354,12 @@ static func _plan(
 			damage_entries.append({
 				"target": target,
 				"damage_context": damage_context,
-				"metadata": {"hero_id": common["caster"]["id"], "target_side": target_side},
+				"metadata": {
+					"hero_id": common["caster"]["id"], "target_side": target_side,
+					# All targets are one burn01 ultimate hit, even though DamagePipeline
+					# resolves their state sequentially.
+					"presentation_wave_index": 0,
+				},
 			})
 		common["damage"] = damage
 		common["damage_entries"] = damage_entries

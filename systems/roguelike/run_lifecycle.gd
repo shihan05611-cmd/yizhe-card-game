@@ -8,10 +8,12 @@ extends RefCounted
 const RunContractScript = preload("res://systems/roguelike/run_contract.gd")
 const MapSystemScript = preload("res://systems/roguelike/map_system.gd")
 const RunBattleProgressScript = preload("res://systems/roguelike/run_battle_progress.gd")
+const CardCatalogScript = preload("res://data/catalogs/card_catalog.gd")
+const HeroCardCatalogScript = preload("res://data/catalogs/hero_card_catalog.gd")
 
-const INITIAL_HERO_CHOICE_COUNT := 4
+const INITIAL_HERO_CHOICE_COUNT := 3
 const INITIAL_FREE_SKILL_COUNT := 2
-const RECRUITMENT_OPTION_COUNT := 4
+const RECRUITMENT_OPTION_COUNT := 3
 const SHOP_SKILL_OPTION_COUNT := 3
 const SHOP_RELIC_OPTION_COUNT := 3
 const FORGE_RELIC_OPTION_COUNT := 3
@@ -28,16 +30,29 @@ const NODE_KEYS := [
 const OPTION_KEYS := [
 	"id", "payload_id", "name", "description", "type", "price", "purchased",
 ]
-const REWARD_OPTION_TYPES := ["freeSkill", "relic", "heal", "hero"]
-const SHOP_OPTION_TYPES := ["shopFreeSkill", "shopRelic"]
+const REWARD_OPTION_TYPES := ["freeSkill", "exclusiveCard", "relic", "heal", "hero"]
+const SHOP_OPTION_TYPES := ["shopFreeSkill", "shopExclusiveCard", "shopRelic"]
 const FORGE_OPTION_TYPES := ["forgeRelic"]
 const STAGE_ID_BY_CHAPTER := {1: "counter", 2: "burn", 3: "core"}
+const CHECKPOINT_VERSION := 3
+const LEGACY_RUN_ALLY_CLASS_BY_SLOT := {
+	1: "shield", 2: "shield", 3: "shield", 4: "assassin", 5: "crossbow", 6: "banner",
+}
+const RUN_PIECE_CLASS_IDS := ["shield", "assassin", "crossbow", "banner"]
+const RUN_PIECE_CLASS_STOCK := 2
+const CHECKPOINT_KEYS := [
+	"version", "state", "reward_option_authority", "shop_option_authority",
+]
+const CHECKPOINT_STATUSES := [
+	"idle", "heroSelect", "map", "reward", "shop", "forge", "event", "cleared", "failed",
+]
 
 var _state: Dictionary
 var _catalogs: Dictionary
 var _players: Dictionary
 var _skills: Dictionary
 var _relics: Dictionary
+var _card_catalog: Dictionary
 var _roguelike_catalog: Dictionary
 var _random: Variant
 var _valid := false
@@ -53,6 +68,7 @@ func _init(
 	content_catalog: Variant = null,
 	run_random: Variant = null,
 	errors: Array[String] = [],
+	restored_authority: Variant = null,
 ) -> void:
 	errors.clear()
 	if typeof(run_state) != TYPE_DICTIONARY:
@@ -77,10 +93,28 @@ func _init(
 			_state = run_state
 			_catalogs = content_catalog
 			_random = run_random
+			if restored_authority != null:
+				if (
+					typeof(restored_authority) != TYPE_DICTIONARY
+					or restored_authority.size() != 2
+					or not restored_authority.has("reward_option_authority")
+					or not restored_authority.has("shop_option_authority")
+					or typeof(restored_authority["reward_option_authority"]) != TYPE_DICTIONARY
+					or typeof(restored_authority["shop_option_authority"]) != TYPE_DICTIONARY
+				):
+					_dependency_error = "Run lifecycle restored authority is invalid"
+				else:
+					_reward_option_authority = _deep_copy(
+						restored_authority["reward_option_authority"]
+					)
+					_shop_option_authority = _deep_copy(
+						restored_authority["shop_option_authority"]
+					)
 			_valid = true
-			if not _validate_state(_state, state_errors):
+			if not _dependency_error.is_empty() or not _validate_state(_state, state_errors):
 				_valid = false
-				_dependency_error = state_errors[0]
+				if _dependency_error.is_empty():
+					_dependency_error = state_errors[0]
 	if not _dependency_error.is_empty():
 		errors.clear()
 		errors.append(_dependency_error)
@@ -100,6 +134,75 @@ func snapshot(errors: Array[String] = []) -> Dictionary:
 func validate(errors: Array[String] = []) -> bool:
 	errors.clear()
 	return _require_valid(errors) and _validate_state(_state, errors)
+
+
+func export_checkpoint(errors: Array[String] = []) -> Dictionary:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors):
+		return {}
+	if _state["status"] not in CHECKPOINT_STATUSES:
+		errors.append("Run lifecycle cannot checkpoint during battle")
+		return {}
+	return {
+		"version": CHECKPOINT_VERSION,
+		"state": _normalize_json_numbers(RunContractScript.snapshot(_state, errors)),
+		"reward_option_authority": _normalize_json_numbers(_reward_option_authority),
+		"shop_option_authority": _normalize_json_numbers(_shop_option_authority),
+	}
+
+
+static func restore_checkpoint(
+	checkpoint: Variant,
+	content_catalog: Variant,
+	run_random: Variant,
+	errors: Array[String] = [],
+) -> Variant:
+	errors.clear()
+	if typeof(content_catalog) != TYPE_DICTIONARY:
+		errors.append("Run lifecycle checkpoint requires a Dictionary content catalog")
+		return null
+	if not _has_checkpoint_shape(checkpoint):
+		errors.append("Run lifecycle checkpoint must be a closed Dictionary")
+		return null
+	var version: Variant = _normalized_integer(checkpoint["version"])
+	if version not in [1, 2, CHECKPOINT_VERSION]:
+		errors.append("unsupported Run lifecycle checkpoint version")
+		return null
+	# Only legacy checkpoints gain newly introduced defaults.  A current-version
+	# checkpoint must remain closed so a malformed save cannot silently erase a
+	# claimed card inventory.
+	var original_version: int = version
+	var normalized: Dictionary = _normalize_json_numbers(checkpoint)
+	if version == 1:
+		normalized = _migrate_v1_checkpoint(normalized, errors)
+		if not errors.is_empty():
+			return null
+	if original_version < CHECKPOINT_VERSION:
+		normalized = _migrate_exclusive_cards_checkpoint(normalized, errors)
+		if not errors.is_empty():
+			return null
+	normalized = _migrate_four_choice_checkpoint(normalized, content_catalog, errors)
+	if not errors.is_empty():
+		return null
+	if (
+		typeof(normalized["state"]) != TYPE_DICTIONARY
+		or normalized["state"].get("status") not in CHECKPOINT_STATUSES
+	):
+		errors.append("Run lifecycle checkpoint contains an unsupported activity status")
+		return null
+	var restored := RoguelikeRunLifecycle.new(
+		normalized["state"],
+		content_catalog,
+		run_random,
+		errors,
+		{
+			"reward_option_authority": normalized["reward_option_authority"],
+			"shop_option_authority": normalized["shop_option_authority"],
+		},
+	)
+	if not errors.is_empty() or not restored.is_valid():
+		return null
+	return restored
 
 
 func start_run(errors: Array[String] = []) -> bool:
@@ -192,6 +295,48 @@ func set_hero_deployment_slot(
 	, errors)
 
 
+func swap_piece_slots(first_slot: Variant, second_slot: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, _local_errors: Array[String]) -> bool:
+		if second_slot == null or not _formation_editable(candidate, first_slot, second_slot) or first_slot == second_slot:
+			return false
+		var first: Dictionary = _piece_slot_entry(candidate, int(first_slot))
+		var second: Dictionary = _piece_slot_entry(candidate, int(second_slot))
+		var moved_hp: float = float(first["hp_ratio"])
+		var moved_class: Variant = first["piece_class_id"]
+		first["hp_ratio"] = second["hp_ratio"]
+		first["piece_class_id"] = second["piece_class_id"]
+		second["hp_ratio"] = moved_hp
+		second["piece_class_id"] = moved_class
+		return true
+	, errors)
+
+
+func set_piece_class(slot: Variant, class_id: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if not _formation_editable(candidate, slot) or class_id not in RUN_PIECE_CLASS_IDS:
+			return false
+		var entry: Dictionary = _piece_slot_entry(candidate, int(slot))
+		# Inventory describes alternative equipment for the four initial pieces;
+		# it does not recruit a fifth or sixth piece into an empty position.
+		if entry["piece_class_id"] == null:
+			local_errors.append("空位只能通过拖拽现有棋子换位")
+			return false
+		if entry["piece_class_id"] == class_id:
+			return true
+		var already_owned := 0
+		for other: Dictionary in candidate["piece_slots"]:
+			if other["slot"] != int(slot) and other["piece_class_id"] == class_id:
+				already_owned += 1
+		# Legacy saves can retain three shields. They can move or replace one, but
+		# may never add another copy until back under the normal stock cap.
+		if already_owned >= RUN_PIECE_CLASS_STOCK:
+			local_errors.append("该兵种库存已用尽")
+			return false
+		entry["piece_class_id"] = class_id
+		return true
+	, errors)
+
+
 func deployed_hero_ids(errors: Array[String] = []) -> Array[int]:
 	errors.clear()
 	if not _require_valid(errors) or not _validate_state(_state, errors):
@@ -269,8 +414,8 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 			return false
 		var prepared_options: Array = []
 		if node["type"] == "shop":
-			prepared_options.append_array(_draw_skill_options(
-				SHOP_SKILL_OPTION_COUNT, "shop", "shopFreeSkill", _skill_price(node["chapter"]),
+			prepared_options.append_array(_draw_card_options(
+				candidate, SHOP_SKILL_OPTION_COUNT, "shop", _skill_price(node["chapter"]), true,
 				local_errors,
 			))
 			if not local_errors.is_empty():
@@ -359,6 +504,9 @@ func begin_current_battle(errors: Array[String] = []) -> Dictionary:
 		"battle_seed": _battle_launch_authority["battle_seed"],
 		"deployed_hero_ids": _sorted_deployment_ids(_state["hero_deployment_slots"]),
 		"free_skill_ids": _state["free_skill_ids"].duplicate(),
+		# Extra exclusives remain in the Run inventory after an owner is taken out
+		# of formation.  The battle only receives copies whose owner is deployed.
+		"exclusive_card_ids": _deployed_exclusive_card_ids(_state),
 		"stage_id": _battle_launch_authority["stage_id"],
 		"relic_ids": _battle_relic_ids(),
 		"encounter": _deep_copy(_battle_launch_authority["encounter"]),
@@ -565,7 +713,8 @@ func use_forge_heal(errors: Array[String] = []) -> bool:
 			return false
 		candidate["currency"] -= cost
 		for entry: Dictionary in candidate["piece_slots"]:
-			entry["hp_ratio"] = 1.0
+			if entry["piece_class_id"] != null:
+				entry["hp_ratio"] = 1.0
 		candidate["forge_uses_this_node"] += 1
 		return true
 	, errors)
@@ -595,6 +744,8 @@ func _buy_option(
 		candidate["currency"] -= cost
 		if option["type"] == "shopFreeSkill":
 			candidate["free_skill_ids"].append(option["payload_id"])
+		elif option["type"] == "shopExclusiveCard":
+			candidate["exclusive_card_ids"].append(option["payload_id"])
 		else:
 			candidate["relic_ids"].append(option["payload_id"])
 		option["purchased"] = true
@@ -629,6 +780,45 @@ func _draw_skill_options(
 			"purchased": false,
 		})
 	return options
+
+
+func _draw_card_options(
+	candidate: Dictionary, count: int, prefix: String, price: int, shop: bool,
+	errors: Array[String],
+) -> Array:
+	var pool: Array = []
+	for skill_id: Variant in _roguelike_catalog["free_skills"]:
+		if skill_id == "basicDamage":
+			continue
+		var skill: Dictionary = _roguelike_catalog["free_skills"][skill_id]
+		pool.append({
+			"id": "%s:skill:%s" % [prefix, skill["id"]],
+			"payload_id": skill["id"], "name": skill["name"],
+			"description": skill["tip"],
+			"type": "shopFreeSkill" if shop else "freeSkill",
+			"price": price, "purchased": false,
+		})
+	for card_id: Variant in _card_catalog:
+		var card: Variant = _card_catalog[card_id]
+		if (
+			card.card_category != "exclusive"
+			or not candidate["hero_deployment_slots"].has(str(card.owner_hero_id))
+		):
+			continue
+		var details := _exclusive_card_details(card)
+		if details.is_empty():
+			continue
+		pool.append({
+			"id": "%s:exclusive:%s" % [prefix, card.id],
+			"payload_id": card.id, "name": details["name"],
+			"description": details["description"],
+			"type": "shopExclusiveCard" if shop else "exclusiveCard",
+			"price": price, "purchased": false,
+		})
+	var shuffled: Array = _random.shuffle(pool, errors)
+	if not errors.is_empty():
+		return []
+	return shuffled.slice(0, mini(count, shuffled.size()))
 
 
 func _draw_relic_options(
@@ -694,13 +884,13 @@ func _option_from_relic(
 
 
 func _build_battle_rewards(
-	_candidate: Dictionary,
+	candidate: Dictionary,
 	_node: Dictionary,
 	reward: Dictionary,
 	errors: Array[String],
 ) -> Array:
-	var options := _draw_skill_options(
-		reward["freeSkillCount"], "reward", "freeSkill", 0, errors,
+	var options := _draw_card_options(
+		candidate, reward["freeSkillCount"], "reward", 0, false, errors,
 	)
 	if not errors.is_empty():
 		return []
@@ -771,12 +961,15 @@ func _apply_reward_option(
 		"freeSkill":
 			candidate["free_skill_ids"].append(option["payload_id"])
 			return true
+		"exclusiveCard":
+			candidate["exclusive_card_ids"].append(option["payload_id"])
+			return true
 		"relic":
 			candidate["relic_ids"].append(option["payload_id"])
 			return true
 		"heal":
 			for entry: Dictionary in candidate["piece_slots"]:
-				if entry["hp_ratio"] > 0.0:
+				if entry["piece_class_id"] != null and entry["hp_ratio"] > 0.0:
 					entry["hp_ratio"] = minf(1.0, entry["hp_ratio"] + REWARD_HEAL_RATIO)
 			return true
 		"hero":
@@ -807,7 +1000,7 @@ func _forge_heal_cost(state: Dictionary) -> Variant:
 	if not state["active"] or state["status"] != "forge":
 		return null
 	if not state["piece_slots"].any(func(entry: Dictionary) -> bool:
-		return entry["hp_ratio"] < 1.0
+		return entry["piece_class_id"] != null and entry["hp_ratio"] < 1.0
 	):
 		return null
 	var base: int = 0 if state["forge_uses_this_node"] == 0 else (
@@ -957,7 +1150,7 @@ func _draw_initial_hero_choices(errors: Array[String]) -> Array:
 		if exclusive_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
 			growth_candidates.append(hero_id)
 	if candidates.size() < INITIAL_HERO_CHOICE_COUNT or growth_candidates.is_empty():
-		errors.append("Run hero catalog cannot provide four choices including permanent growth")
+		errors.append("Run hero catalog cannot provide three choices including permanent growth")
 		return []
 	var required_growth: Variant = _random.pick(growth_candidates, errors)
 	if not errors.is_empty() or required_growth == null:
@@ -1004,6 +1197,35 @@ func _atomic(command: Callable, errors: Array[String]) -> bool:
 	return committed
 
 
+func _formation_editable(candidate: Dictionary, first_slot: Variant, second_slot: Variant = null) -> bool:
+	if not candidate["active"] or candidate["status"] != "map":
+		return false
+	if typeof(first_slot) != TYPE_INT or first_slot < 1 or first_slot > 6:
+		return false
+	if second_slot != null and (typeof(second_slot) != TYPE_INT or second_slot < 1 or second_slot > 6):
+		return false
+	return true
+
+
+func _piece_slot_entry(candidate: Dictionary, slot: int) -> Dictionary:
+	for entry: Dictionary in candidate["piece_slots"]:
+		if entry["slot"] == slot:
+			return entry
+	return {}
+
+
+func _validate_piece_formation(slots: Array, errors: Array[String]) -> bool:
+	for entry: Dictionary in slots:
+		var class_id: Variant = entry["piece_class_id"]
+		if class_id != null and class_id not in RUN_PIECE_CLASS_IDS:
+			errors.append("Run formation references unavailable piece class: %s" % str(class_id))
+			return false
+	# A legacy six-full save may retain three shields. This validator deliberately
+	# permits that state so migration never deletes a unit; mutations enforce the
+	# normal stock cap before introducing any additional class copy.
+	return true
+
+
 func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 	var structural_errors: Array[String] = []
 	if not RunContractScript.validate(state, structural_errors):
@@ -1023,9 +1245,23 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 		if not _players.has(int(raw_hero_id)):
 			errors.append("Run roster references unknown hero %s" % raw_hero_id)
 			return false
+	if not _validate_piece_formation(state["piece_slots"], errors):
+		return false
 	for skill_id: Variant in state["free_skill_ids"]:
 		if skill_id == "basicDamage" or not _skills.has(skill_id):
 			errors.append("Run free-skill multiset references an unavailable player card: %s" % str(skill_id))
+			return false
+	for card_id: Variant in state["exclusive_card_ids"]:
+		var card: Variant = _card_catalog.get(card_id)
+		if (
+			not card is Resource
+			or card.card_category != "exclusive"
+			or not _players.has(card.owner_hero_id)
+		):
+			errors.append("Run extra exclusive cards must reference a known hero ability")
+			return false
+		if _exclusive_card_details(card).is_empty():
+			errors.append("Run extra exclusive cards cannot reference passive abilities")
 			return false
 	if state["status"] == "heroSelect":
 		if (
@@ -1033,6 +1269,7 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 			or state["currency"] != 30
 			or not state["hero_deployment_slots"].is_empty()
 			or not state["free_skill_ids"].is_empty()
+			or not state["exclusive_card_ids"].is_empty()
 			or not state["map_nodes"].is_empty()
 			or state["current_node_id"] != null
 		):
@@ -1050,10 +1287,42 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 	return true
 
 
+func _deployed_exclusive_card_ids(state: Dictionary) -> Array:
+	var cards: Array = []
+	for card_id: Variant in state["exclusive_card_ids"]:
+		var card: Variant = _card_catalog.get(card_id)
+		if (
+			card is Resource
+			and state["hero_deployment_slots"].has(str(card.owner_hero_id))
+		):
+			cards.append(card_id)
+	return cards
+
+
+func _exclusive_card_details(card: Variant) -> Dictionary:
+	if not card is Resource or card.card_category != "exclusive":
+		return {}
+	var ability: Variant = _catalogs["hero_abilities"]["exclusive"].get(card.source_skill_id)
+	if ability != null:
+		if ability.is_passive:
+			return {}
+		return {"name": ability.name, "description": ability.tip}
+	var display: Variant = HeroCardCatalogScript.display(card.id)
+	if (
+		typeof(display) != TYPE_DICTIONARY
+		or typeof(display.get("name")) != TYPE_STRING
+		or str(display["name"]).is_empty()
+		or typeof(display.get("description")) != TYPE_STRING
+		or str(display["description"]).is_empty()
+	):
+		return {}
+	return {"name": display["name"], "description": display["description"]}
+
+
 func _validate_initial_choices(state: Dictionary, errors: Array[String]) -> bool:
 	var choices: Array = state["initial_hero_choice_ids"]
 	if choices.size() != INITIAL_HERO_CHOICE_COUNT:
-		errors.append("active Run requires exactly four initial hero choices")
+		errors.append("active Run requires exactly three initial hero choices")
 		return false
 	var has_growth := false
 	for hero_id: Variant in choices:
@@ -1075,7 +1344,7 @@ func _validate_map(state: Dictionary, errors: Array[String]) -> bool:
 	var coordinates := {}
 	var available_columns := {}
 	for raw_node: Variant in state["map_nodes"]:
-		if typeof(raw_node) != TYPE_DICTIONARY or raw_node.keys() != NODE_KEYS:
+		if not _dictionary_has_exact_keys(raw_node, NODE_KEYS):
 			errors.append("Run map node must keep the canonical M5 map shape")
 			return false
 		var node: Dictionary = raw_node
@@ -1248,11 +1517,11 @@ func _validate_status(state: Dictionary, errors: Array[String]) -> bool:
 func _validate_recruitment_options(state: Dictionary, errors: Array[String]) -> bool:
 	var options: Array = state["reward_options"]
 	if options.is_empty() or options.size() > RECRUITMENT_OPTION_COUNT:
-		errors.append("recruitment must publish from one through four hero options")
+		errors.append("recruitment must publish from one through three hero options")
 		return false
 	var seen := {}
 	for raw_option: Variant in options:
-		if typeof(raw_option) != TYPE_DICTIONARY or raw_option.keys() != OPTION_KEYS:
+		if not _dictionary_has_exact_keys(raw_option, OPTION_KEYS):
 			errors.append("recruitment option must keep the canonical hero option shape")
 			return false
 		var option: Dictionary = raw_option
@@ -1331,7 +1600,7 @@ func _validate_option_list(
 			errors.append("%s must contain only canonical option Dictionaries" % label)
 			return false
 		var option: Dictionary = raw_option
-		if option.keys() != OPTION_KEYS or seen.has(option.get("id")):
+		if not _dictionary_has_exact_keys(option, OPTION_KEYS) or seen.has(option.get("id")):
 			errors.append("%s must contain unique canonical option ids" % label)
 			return false
 		seen[option["id"]] = true
@@ -1356,7 +1625,7 @@ func _validate_option(
 	state: Dictionary,
 ) -> bool:
 	if (
-		option.keys() != OPTION_KEYS
+		not _dictionary_has_exact_keys(option, OPTION_KEYS)
 		or option.get("type") not in expected_types
 		or typeof(option.get("id")) != TYPE_STRING
 		or option["id"].is_empty()
@@ -1400,6 +1669,27 @@ func _validate_option(
 				and option["id"] == "%s:skill:%s" % [prefix, skill_id]
 				and option["price"] == expected_price
 				and (option["type"] == "shopFreeSkill" or option["purchased"] == false)
+			)
+		"exclusiveCard", "shopExclusiveCard":
+			var card_id: Variant = option["payload_id"]
+			var prefix := "reward" if option["type"] == "exclusiveCard" else "shop"
+			var expected_price := 0 if option["type"] == "exclusiveCard" else _skill_price(state["chapter"])
+			var card: Variant = _card_catalog.get(card_id)
+			if (
+				typeof(card_id) != TYPE_STRING
+				or not card is Resource
+				or card.card_category != "exclusive"
+				or not state["hero_deployment_slots"].has(str(card.owner_hero_id))
+			):
+				return false
+			var details := _exclusive_card_details(card)
+			return (
+				not details.is_empty()
+				and option["id"] == "%s:exclusive:%s" % [prefix, card_id]
+				and option["name"] == details["name"]
+				and option["description"] == details["description"]
+				and option["price"] == expected_price
+				and (option["type"] == "shopExclusiveCard" or option["purchased"] == false)
 			)
 		"relic", "shopRelic", "forgeRelic":
 			var relic_id: Variant = option["payload_id"]
@@ -1494,6 +1784,7 @@ func _read_catalogs(content_catalog: Dictionary, errors: Array[String]) -> bool:
 		or typeof(content_catalog["characters"].get("players")) != TYPE_DICTIONARY
 		or typeof(content_catalog.get("skills")) != TYPE_DICTIONARY
 		or typeof(content_catalog.get("relics")) != TYPE_DICTIONARY
+		or typeof(content_catalog.get("hero_abilities")) != TYPE_DICTIONARY
 		or typeof(content_catalog.get("roguelike_content")) != TYPE_DICTIONARY
 	):
 		errors.append("Run lifecycle M1 catalog groups are missing")
@@ -1501,6 +1792,10 @@ func _read_catalogs(content_catalog: Dictionary, errors: Array[String]) -> bool:
 	_players = content_catalog["characters"]["players"]
 	_skills = content_catalog["skills"]
 	_relics = content_catalog["relics"]
+	_card_catalog = CardCatalogScript.build(_skills, content_catalog["hero_abilities"])
+	if _card_catalog.is_empty():
+		errors.append("Run lifecycle card catalog is unavailable")
+		return false
 	_roguelike_catalog = content_catalog["roguelike_content"]
 	return true
 
@@ -1516,6 +1811,208 @@ func _replace(target: Dictionary, source: Dictionary) -> void:
 	target.clear()
 	for key: Variant in source:
 		target[key] = source[key]
+
+
+static func _has_checkpoint_shape(value: Variant) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or value.size() != CHECKPOINT_KEYS.size():
+		return false
+	for key: String in CHECKPOINT_KEYS:
+		if not value.has(key):
+			return false
+	return true
+
+
+static func _dictionary_has_exact_keys(value: Variant, expected_keys: Array) -> bool:
+	if typeof(value) != TYPE_DICTIONARY or value.size() != expected_keys.size():
+		return false
+	for key: Variant in expected_keys:
+		if not value.has(key):
+			return false
+	return true
+
+
+static func _normalized_integer(value: Variant) -> Variant:
+	if typeof(value) == TYPE_INT:
+		return value
+	if typeof(value) == TYPE_FLOAT and is_finite(value) and value == floor(value):
+		return int(value)
+	return null
+
+
+static func _normalize_json_numbers(value: Variant) -> Variant:
+	if typeof(value) == TYPE_FLOAT and is_finite(value) and value == floor(value):
+		return int(value)
+	if typeof(value) == TYPE_ARRAY:
+		var normalized_array: Array = []
+		for item: Variant in value:
+			normalized_array.append(_normalize_json_numbers(item))
+		return normalized_array
+	if typeof(value) == TYPE_DICTIONARY:
+		var normalized_dictionary := {}
+		for key: Variant in value:
+			normalized_dictionary[key] = _normalize_json_numbers(value[key])
+		return normalized_dictionary
+	return value
+
+
+static func _migrate_v1_checkpoint(checkpoint: Dictionary, errors: Array[String]) -> Dictionary:
+	var migrated: Dictionary = checkpoint.duplicate(true)
+	var state: Variant = migrated.get("state")
+	if typeof(state) != TYPE_DICTIONARY or typeof(state.get("piece_slots")) != TYPE_ARRAY:
+		errors.append("legacy Run checkpoint has no piece slot formation")
+		return {}
+	if state["piece_slots"].size() != 6:
+		errors.append("legacy Run checkpoint has an invalid piece slot formation")
+		return {}
+	for index in state["piece_slots"].size():
+		var entry: Variant = state["piece_slots"][index]
+		if (
+			typeof(entry) != TYPE_DICTIONARY
+			or entry.size() != 2
+			or not entry.has("slot")
+			or not entry.has("hp_ratio")
+		):
+			errors.append("legacy Run checkpoint has an invalid piece slot entry")
+			return {}
+		entry["piece_class_id"] = LEGACY_RUN_ALLY_CLASS_BY_SLOT[index + 1]
+	migrated["version"] = CHECKPOINT_VERSION
+	return migrated
+
+
+static func _migrate_exclusive_cards_checkpoint(
+	checkpoint: Dictionary, errors: Array[String]
+) -> Dictionary:
+	var migrated: Dictionary = checkpoint.duplicate(true)
+	var state: Variant = migrated.get("state")
+	if typeof(state) != TYPE_DICTIONARY:
+		errors.append("Run checkpoint state is invalid")
+		return {}
+	if not state.has("exclusive_card_ids"):
+		state["exclusive_card_ids"] = []
+	# Dictionaries retrieved from a duplicated Variant are value-copied here;
+	# publish the normalized state back into the checkpoint explicitly.
+	migrated["state"] = state
+	migrated["version"] = CHECKPOINT_VERSION
+	return migrated
+
+
+static func _migrate_four_choice_checkpoint(
+	checkpoint: Dictionary, content_catalog: Dictionary, errors: Array[String]
+) -> Dictionary:
+	var migrated: Dictionary = checkpoint.duplicate(true)
+	var state: Variant = migrated.get("state")
+	if typeof(state) != TYPE_DICTIONARY:
+		errors.append("Run checkpoint state is invalid")
+		return {}
+	var characters: Variant = content_catalog.get("characters")
+	var players: Variant = characters.get("players") if typeof(characters) == TYPE_DICTIONARY else null
+	if typeof(players) != TYPE_DICTIONARY:
+		errors.append("Run checkpoint content catalog lacks player definitions")
+		return {}
+	var choices: Variant = state.get("initial_hero_choice_ids")
+	if typeof(choices) == TYPE_ARRAY and choices.size() == 4:
+		if not _validate_legacy_four_initial_choices(choices, players, errors):
+			return {}
+		var required := {}
+		var owned_initial: Array = []
+		if state.get("status") != "heroSelect":
+			var deployed: Variant = state.get("hero_deployment_slots")
+			if typeof(deployed) != TYPE_DICTIONARY:
+				errors.append("legacy four-choice checkpoint has an invalid deployed roster")
+				return {}
+			for hero_id: Variant in choices:
+				if deployed.has(str(hero_id)):
+					owned_initial.append(hero_id)
+			if not owned_initial.is_empty():
+				required[owned_initial[0]] = true
+		var retained_growth: Variant = null
+		for hero_id: Variant in owned_initial:
+			if players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
+				retained_growth = hero_id
+				break
+		for hero_id: Variant in choices:
+			if retained_growth == null and players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
+				retained_growth = hero_id
+		if retained_growth != null:
+			required[retained_growth] = true
+		var retained: Array = []
+		for hero_id: Variant in choices:
+			if required.has(hero_id):
+				retained.append(hero_id)
+		for hero_id: Variant in choices:
+			if retained.size() == INITIAL_HERO_CHOICE_COUNT:
+				break
+			if hero_id not in retained:
+				retained.append(hero_id)
+		state["initial_hero_choice_ids"] = retained
+	if typeof(state.get("reward_options")) == TYPE_ARRAY and state["reward_options"].size() == 4:
+		if not _validate_legacy_four_recruitment_options(state, migrated.get("reward_option_authority"), players, errors):
+			return {}
+		var kept: Array = state["reward_options"].slice(0, 3)
+		state["reward_options"] = kept
+		var authority: Variant = migrated.get("reward_option_authority")
+		var ids := kept.map(func(option: Dictionary) -> String: return option["id"])
+		for key: Variant in authority.keys():
+			if key not in ids:
+				authority.erase(key)
+	return migrated
+
+
+static func _validate_legacy_four_initial_choices(
+	choices: Array, players: Dictionary, errors: Array[String]
+) -> bool:
+	var seen := {}
+	var has_growth := false
+	for hero_id: Variant in choices:
+		if (
+			typeof(hero_id) != TYPE_INT
+			or seen.has(hero_id)
+			or not players.has(hero_id)
+			or players[hero_id].exclusive_skill_id == "fate"
+		):
+			errors.append("legacy four-choice checkpoint has invalid initial hero choices")
+			return false
+		seen[hero_id] = true
+		has_growth = has_growth or players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS
+	if not has_growth:
+		errors.append("legacy four-choice checkpoint must retain a permanent-growth hero")
+		return false
+	return true
+
+
+static func _validate_legacy_four_recruitment_options(
+	state: Dictionary, authority: Variant, players: Dictionary, errors: Array[String]
+) -> bool:
+	if state.get("status") != "reward" or not state.get("reward_pending", false) or typeof(authority) != TYPE_DICTIONARY or authority.size() != 4:
+		errors.append("legacy four-choice recruitment checkpoint has invalid authority")
+		return false
+	var seen := {}
+	for raw_option: Variant in state["reward_options"]:
+		if typeof(raw_option) != TYPE_DICTIONARY or not _dictionary_has_exact_keys(raw_option, OPTION_KEYS):
+			errors.append("legacy four-choice recruitment checkpoint has invalid option shape")
+			return false
+		var option: Dictionary = raw_option
+		var hero_id: Variant = option.get("payload_id")
+		if (
+			option.get("type") != "hero"
+			or typeof(hero_id) != TYPE_INT
+			or seen.has(hero_id)
+			or not players.has(hero_id)
+			or players[hero_id].exclusive_skill_id == "fate"
+			or state.get("hero_deployment_slots", {}).has(str(hero_id))
+			or option.get("id") != "reward:hero:%d" % hero_id
+			or option.get("name") != players[hero_id].name
+			or option.get("description") != "招募后加入本局后台，可在整备区调整站位。"
+			or option.get("price") != 0
+			or option.get("purchased") != false
+		):
+			errors.append("legacy four-choice recruitment checkpoint has invalid option data: %s" % str(option.get("id")))
+			return false
+		if not authority.has(option["id"]) or authority[option["id"]] != option:
+			errors.append("legacy four-choice recruitment checkpoint must match its authority")
+			return false
+		seen[hero_id] = true
+	return true
 
 
 func _deep_copy(value: Variant) -> Variant:

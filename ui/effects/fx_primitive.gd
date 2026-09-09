@@ -2,6 +2,12 @@ class_name FxPrimitive
 extends Control
 
 var _play_tween: Tween
+var _ink_variant := ""
+var _ink_multi := false
+
+
+func _init() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func configure(context: Dictionary) -> void:
@@ -17,9 +23,48 @@ func configure(context: Dictionary) -> void:
 	var hue := fmod(float(context.get("hue", 200.0)), 360.0) / 360.0
 	var intensity := clampf(float(context.get("intensity", 0.8)), 0.2, 1.0)
 	modulate = Color.from_hsv(hue, 0.62, 1.0, intensity)
+	_ink_variant = ""
+	if prim in ["burst", "multiBurst", "multiMark"]:
+		# Semantic local marks use their own jade/copper ink, not HSV multiplication.
+		_ink_variant = str(context.get("variant", context.get("ring", "impact")))
+		_ink_multi = prim != "burst"
+		modulate = Color(1, 1, 1, intensity)
 	_configure_caption(context)
 	_configure_variant(context)
 	_configure_field(context)
+	queue_redraw()
+
+
+func _draw() -> void:
+	if _ink_variant.is_empty():
+		return
+	# Draw around the actual target anchor (local zero), not the old panel center
+	# that displaced every effect down and right by half its scene size.
+	var copper := Color("d0a078")
+	var jade := Color("a5bba0")
+	var radius := 21.0 if _ink_multi else 29.0
+	match _ink_variant:
+		"impact":
+			# Four short outward shards identify contact without enclosing the unit.
+			for i in range(4):
+				var direction := Vector2.from_angle(PI*0.25+i*PI*0.5)
+				var normal := direction.orthogonal()
+				draw_colored_polygon(PackedVector2Array([direction*10-normal*1.4,direction*(radius+4),direction*10+normal*1.4]),Color(copper,0.85))
+		"lock", "mark":
+			var ink := copper if _ink_variant == "lock" else jade
+			for x in [-1.0,1.0]:
+				for y in [-1.0,1.0]:
+					var corner := Vector2(x,y)*radius
+					draw_polyline(PackedVector2Array([corner-Vector2(x*7,0),corner,corner-Vector2(0,y*7)]),Color(ink,0.78),1.3,true)
+		"implode":
+			for i in range(4):
+				var direction := Vector2.from_angle(i*PI*0.5)
+				var normal := direction.orthogonal()
+				draw_polyline(PackedVector2Array([direction*24+normal*5,direction*15,direction*24-normal*5]),Color(copper,0.8),1.3,true)
+		"assemble":
+			for x in [-1.0,1.0]:
+				draw_polyline(PackedVector2Array([Vector2(x*6,-17),Vector2(x*19,-17),Vector2(x*19,17),Vector2(x*6,17)]),Color(jade,0.8),1.3,true)
+			draw_polyline(PackedVector2Array([Vector2(0,-8),Vector2(7,0),Vector2(0,8),Vector2(-7,0),Vector2(0,-8)]),Color(copper,0.68),1.0,true)
 
 
 func play(duration_seconds: float, delay_seconds: float = 0.0) -> void:

@@ -1,0 +1,13 @@
+Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org
+
+FAIL: card catalog derives stable player cards and excludes basicDamage: expected 27, got 28
+M3-2 CARD PLAY FLOW TESTS: tests=6 assertions=125 failures=0
+M3-2 ENERGY RULE TESTS: tests=6 assertions=39 failures=0
+M3-2 ULTIMATE CARD TESTS: tests=1 assertions=20 failures=0
+M3-3 DECK ASSEMBLY TESTS: tests=4 assertions=40 failures=0
+M3-3 BATTLE CARD SESSION TESTS: tests=11 assertions=103 failures=0
+B4-1A PIECE ATTACK TESTS: tests=12 assertions=102 failures=0
+B4-1R PIECE REACTIONS TESTS: tests=8 assertions=85 failures=0
+B3-6 ENEMY SKILL ADAPTER TESTS: tests=11 assertions=155 failures=0
+TEST SUMMARY: tests=75 assertions=1008 failures=1
+  - card catalog derives stable player cards and excludes basicDamage: expected 27, got 28

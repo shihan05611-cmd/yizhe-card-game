@@ -1,7 +1,10 @@
 [gd_scene load_steps=4 format=3]
 [ext_resource type="Script" path="res://ui/battle/board_grid.gd" id="script"]
 [ext_resource type="PackedScene" path="res://scenes/battle/piece_slot.tscn" id="slot"]
-[sub_resource type="StyleBoxEmpty" id="Empty"]
+[sub_resource type="StyleBoxFlat" id="Empty"]
+bg_color = Color(0, 0, 0, 0)
+content_margin_top = 16.0
+content_margin_bottom = 12.0
 
 [node name="BoardGrid" type="PanelContainer"]
 custom_minimum_size = Vector2(240, 300)
@@ -10,8 +13,8 @@ script = ExtResource("script")
 
 [node name="Grid" type="GridContainer" parent="."]
 columns = 2
-theme_override_constants/h_separation = 14
-theme_override_constants/v_separation = 5
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 4
 
 [node name="Slot1" parent="Grid" instance=ExtResource("slot")]
 unique_name_in_owner = true
@@ -48,4 +51,3 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-

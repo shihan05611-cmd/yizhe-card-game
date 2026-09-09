@@ -38,8 +38,8 @@ func _test_start_and_choose(harness: TestHarness) -> void:
 	harness.assert_true(lifecycle.start_run(errors), "; ".join(errors))
 	harness.assert_equal(state["status"], "heroSelect")
 	harness.assert_equal(state["currency"], 30)
-	harness.assert_equal(state["initial_hero_choice_ids"].size(), 4)
-	harness.assert_equal(_unique(state["initial_hero_choice_ids"]).size(), 4)
+	harness.assert_equal(state["initial_hero_choice_ids"].size(), 3)
+	harness.assert_equal(_unique(state["initial_hero_choice_ids"]).size(), 3)
 	harness.assert_false(state["initial_hero_choice_ids"].has(2), "fate must not be a random choice")
 	harness.assert_true(_contains_any(state["initial_hero_choice_ids"], [3, 5, 6]))
 	harness.assert_false(state.has("selected_shentong_id"))
@@ -99,7 +99,7 @@ func _test_recruitment_and_deployment(harness: TestHarness) -> void:
 	_resolve_battle_reward(lifecycle, state, harness, errors)
 	harness.assert_equal(state["status"], "reward")
 	harness.assert_true(state["reward_pending"])
-	harness.assert_equal(state["reward_options"].size(), 4)
+	harness.assert_equal(state["reward_options"].size(), 3)
 	var owned_before: Array[int] = lifecycle.deployed_hero_ids(errors)
 	for option: Dictionary in state["reward_options"]:
 		harness.assert_equal(option["type"], "hero")
@@ -134,7 +134,7 @@ func _test_recruitment_and_deployment(harness: TestHarness) -> void:
 	harness.assert_true(lifecycle.complete_current_battle(true, errors), "; ".join(errors))
 	_resolve_battle_reward(lifecycle, state, harness, errors)
 	harness.assert_equal(state["status"], "reward", "chapter-one boss is the second milestone")
-	harness.assert_equal(state["reward_options"].size(), 4)
+	harness.assert_equal(state["reward_options"].size(), 3)
 	var second_recruit_id: int = state["reward_options"][0]["payload_id"]
 	harness.assert_true(lifecycle.recruit_hero(second_recruit_id, errors), "; ".join(errors))
 	harness.assert_equal(
