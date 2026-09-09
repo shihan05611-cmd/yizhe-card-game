@@ -50,6 +50,8 @@ Web 预设使用 Godot 单线程导出，不依赖服务器的 COOP/COEP 响应�
 
 产物位于 `dist\web\`，应将该目录内的文件原样部署到站点根目录（包括 `index.html`、`.js`、`.wasm`、`.pck`）。预设只从 `scenes/run.tscn` 及其运行时依赖导出，不会把未引用的资源、测试、文档或工具原型打进 Web 包。本地预览必须通过 HTTP 服务，不能双击以 `file://` 打开。Web 端存档继续使用 `user://`；浏览器会将其映射为 IndexedDB，用户禁用 Cookie/站点数据或使用无痕窗口时，继续游戏可能不可用。
 
+推送 `main` 会触发 [GitHub Pages 工作流](.github/workflows/deploy-pages.yml)：它在 Linux runner 上安装固定的 Godot 4.7.1、重新导出 Web 包并仅上传产物目录。首次推送后，在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**；公开仓库的默认地址为 `https://shihan05611-cmd.github.io/yizhe-card-game/`。
+
 产物在 `build\YizheCardGame\`。双击 `启动游戏.cmd` 即可调用同目录 `play.ps1`，后者以 `Godot.exe --main-pack YizheCardGame.pck` 启动游戏。运行日志写入 `build\YizheCardGame\logs\`，存档仍使用 Godot 的 `user://run-save.json`。交付前可执行 `& '.\build\YizheCardGame\play.ps1' -HeadlessSmoke` 检查 pack 是否能冷启动。
 
 ## 无头测试

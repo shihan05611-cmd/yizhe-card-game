@@ -1,0 +1,58 @@
+name: Deploy Web build to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Godot 4.7.1 and export templates
+        uses: solarlabyrinth/action-setup-godot@v3
+        with:
+          version: 4.7.1-stable
+          export-templates: true
+
+      - name: Export Web build
+        run: |
+          output_dir="$RUNNER_TEMP/yizhe-card-game-web"
+          mkdir -p "$output_dir"
+          godot --headless --path "$GITHUB_WORKSPACE" --export-release Web "$output_dir/index.html"
+          test -f "$output_dir/index.html"
+          test -f "$output_dir/index.js"
+          test -f "$output_dir/index.wasm"
+          test -f "$output_dir/index.pck"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/yizhe-card-game-web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
