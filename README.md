@@ -40,6 +40,16 @@ M0–M5 的底层战斗、卡牌和肉鸽领域仍是当前基线。休眠神通
 # 或：$env:GODOT_BIN = 'C:\path\to\Godot_v4.7.1-stable_win64.exe'
 ```
 
+## Web 导出（静态托管）
+
+Web 预设使用 Godot 单线程导出，不依赖服务器的 COOP/COEP 响应头，适用于 GitHub Pages 等静态托管。先在 Godot 安装 **4.7.1 stable 的 Export Templates**，再执行：
+
+```powershell
+& '.\tools\build_web.ps1'
+```
+
+产物位于 `dist\web\`，应将该目录内的文件原样部署到站点根目录（包括 `index.html`、`.js`、`.wasm`、`.pck`）。预设只从 `scenes/run.tscn` 及其运行时依赖导出，不会把未引用的资源、测试、文档或工具原型打进 Web 包。本地预览必须通过 HTTP 服务，不能双击以 `file://` 打开。Web 端存档继续使用 `user://`；浏览器会将其映射为 IndexedDB，用户禁用 Cookie/站点数据或使用无痕窗口时，继续游戏可能不可用。
+
 产物在 `build\YizheCardGame\`。双击 `启动游戏.cmd` 即可调用同目录 `play.ps1`，后者以 `Godot.exe --main-pack YizheCardGame.pck` 启动游戏。运行日志写入 `build\YizheCardGame\logs\`，存档仍使用 Godot 的 `user://run-save.json`。交付前可执行 `& '.\build\YizheCardGame\play.ps1' -HeadlessSmoke` 检查 pack 是否能冷启动。
 
 ## 无头测试
