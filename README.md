@@ -48,7 +48,7 @@ Web 预设使用 Godot 单线程导出，不依赖服务器的 COOP/COEP 响应�
 & '.\tools\build_web.ps1'
 ```
 
-产物位于 `dist\web\`，应将该目录内的文件原样部署到站点根目录（包括 `index.html`、`.js`、`.wasm`、`.pck`）。预设只从 `scenes/run.tscn` 及其运行时依赖导出，不会把未引用的资源、测试、文档或工具原型打进 Web 包。本地预览必须通过 HTTP 服务，不能双击以 `file://` 打开。Web 端存档继续使用 `user://`；浏览器会将其映射为 IndexedDB，用户禁用 Cookie/站点数据或使用无痕窗口时，继续游戏可能不可用。
+产物位于 `dist\web\`，应将该目录内的文件原样部署到站点根目录（包括 `index.html`、`.js`、`.wasm`、`.pck`）。预设会打入完整的运行资源链，避免漏掉 GDScript 的动态或递归依赖；同时明确排除 `tests/`、`docs/`、`tools/` 和已退役的 `ui/art/pieces/`，不会把测试、文档和开发工具原型打进 Web 包。本地预览必须通过 HTTP 服务，不能双击以 `file://` 打开。Web 端存档继续使用 `user://`；浏览器会将其映射为 IndexedDB，用户禁用 Cookie/站点数据或使用无痕窗口时，继续游戏可能不可用。
 
 推送 `main` 会触发 [GitHub Pages 工作流](.github/workflows/deploy-pages.yml)：它在 Linux runner 上安装固定的 Godot 4.7.1、重新导出 Web 包并仅上传产物目录。首次推送后，在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**；公开仓库的默认地址为 `https://shihan05611-cmd.github.io/yizhe-card-game/`。
 
