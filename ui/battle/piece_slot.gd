@@ -101,6 +101,8 @@ func _apply(slot_vm: Dictionary) -> void:
 	hp_bar.visible = true
 	var side := "ally" if slot_vm.get("side") == "ally" else "enemy"
 	var art_kind := "puppet" if bool(slot_vm.get("is_puppet", false)) else str(slot_vm.get("class_id", "default"))
+	if slot_vm.get("special_id") in ["devourer", "echo"]:
+		art_kind = str(slot_vm["special_id"])
 	chess_art.configure(art_kind, side == "enemy")
 	if _action_tween != null and _action_tween.is_valid():
 		_action_tween.kill()
@@ -109,6 +111,11 @@ func _apply(slot_vm: Dictionary) -> void:
 		_shot_tween.kill()
 	chess_art.shot_progress = -1.0
 	tooltip_text = "%s  %d / %d" % [_localized_class_name(slot_vm), hp, max_hp]
+	tooltip_text += "\n" + _enchantment_summary(slot_vm)
+	if slot_vm.get("special_id") == "devourer":
+		tooltip_text += "\n占据2格 · 每次攻击命中最多吞噬1 SP；SP耗尽时吞噬弈者最多10能量。"
+	elif slot_vm.get("special_id") == "echo":
+		tooltip_text += "\n占据3格 · 每次受到伤害，伤害加成增加1%。"
 	class_label.text = _localized_class_name(slot_vm)
 	var meter := StyleBoxFlat.new()
 	meter.bg_color = Color("8cbaa7") if side == "ally" else Color("bf8873")
@@ -172,6 +179,7 @@ func present_buff_event(event: Dictionary) -> void:
 	buff_label.text = _status_text(_pending)
 	buff_label.tooltip_text = buff_label.text
 	tooltip_text = "%s  %d / %d" % [_localized_class_name(_pending), roundi(hp_bar.value), roundi(hp_bar.max_value)]
+	tooltip_text += "\n" + _enchantment_summary(_pending)
 	if not buff_label.text.is_empty(): tooltip_text += "\n" + buff_label.text
 	buff_label.visible = not buff_label.text.is_empty()
 	_set_burn_stacks(_burn_stacks(buffs) if bool(_pending.get("alive", false)) else 0)
@@ -229,6 +237,18 @@ static func _buff_text(buffs: Variant) -> String:
 		return ""
 	var values: Array[String] = []
 	for buff: Dictionary in buffs:
+		if str(buff.get("id", "")) == "nextRoundAction":
+			var ready := 0
+			var waiting := 0
+			for remaining: int in buff.get("layer_turns", []):
+				if remaining <= 1: ready += 1
+				else: waiting += 1
+			if ready + waiting == 0:
+				if int(buff.get("turns", 2)) <= 1: ready = int(buff.get("stacks", 0))
+				else: waiting = int(buff.get("stacks", 0))
+			if ready > 0: values.append("本回合额外行动×%d" % ready)
+			if waiting > 0: values.append("下回合额外行动×%d" % waiting)
+			continue
 		var text := "%s×%s" % [_buff_display_name(buff), str(buff.get("stacks", 0))]
 		var turns := int(buff.get("turns", 0))
 		if turns > 0:
@@ -245,6 +265,20 @@ static func _status_text(slot_vm: Dictionary) -> String:
 	return text
 
 
+static func _enchantment_summary(slot_vm: Dictionary) -> String:
+	var capacity := int(slot_vm.get("enchantment_capacity", 0 if slot_vm.get("is_puppet", false) else 2))
+	if capacity == 0:
+		return "附魔：未开放（可由千机·点化开放）"
+	var names: Array[String] = []
+	for buff: Dictionary in slot_vm.get("buffs", []):
+		if buff.get("id") in ["general", "enchant"]:
+			names.append("将军" if buff["id"] == "general" else "炎华")
+	var text := "附魔 %d/%d" % [names.size(), capacity]
+	if not names.is_empty():
+		text += "：" + " → ".join(names) + "（从早到晚，满槽替换最早一种）"
+	return text
+
+
 static func _buff_display_name(buff: Dictionary) -> String:
 	var provided := str(buff.get("name", ""))
 	if not provided.is_empty():
@@ -255,6 +289,8 @@ static func _buff_display_name(buff: Dictionary) -> String:
 		"breakMarked": "破势", "tempBlock": "临时格挡", "pieceDamageUp": "棋子增伤",
 		"bloodShiftVulnerable": "血移易伤", "bloodShiftGuard": "血移庇护",
 		"flameLeech": "炎汲", "breakFormation": "破阵领域", "pursuit": "追击",
+		"general": "将军·附魔", "puppetAttunement": "傀儡附魔资格",
+		"nextRoundAction": "额外行动",
 	}.get(str(buff.get("id", "?")), str(buff.get("id", "?")))
 
 
@@ -296,6 +332,8 @@ func _resting_modulate() -> Color:
 
 
 static func _localized_class_name(slot_vm: Dictionary) -> String:
+	if slot_vm.get("special_id") in ["devourer", "echo"]:
+		return "噬元兽" if slot_vm["special_id"] == "devourer" else "回响"
 	var class_id := str(slot_vm.get("class_id", ""))
 	if CLASS_NAMES.has(class_id):
 		return CLASS_NAMES[class_id]

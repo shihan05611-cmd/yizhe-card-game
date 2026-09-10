@@ -102,6 +102,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("puppet exclusive selects deterministic empty slot and creates a full fixed shape", func() -> void:
 		_test_puppet_exclusive(harness)
 	)
+	harness.run_test("puppet attunement opens exactly one enchantment slot", func() -> void:
+		_test_puppet_attunement(harness)
+	)
 	harness.run_test("puppet ultimate fills slots heals existing puppets and preserves Web martyr asymmetry", func() -> void:
 		_test_puppet_ultimate(harness)
 	)
@@ -123,7 +126,8 @@ func run(harness: TestHarness) -> void:
 
 func _test_handlers_and_m3_exclusion(harness: TestHarness) -> void:
 	var expected := [
-		EffectsScript.EX_PRESS_OPENING, EffectsScript.EX_PUPPET, EffectsScript.EX_SHADOW, EffectsScript.EX_SIEGE,
+		EffectsScript.EX_PRESS_OPENING, EffectsScript.EX_PUPPET, EffectsScript.EX_PUPPET_ATTUNEMENT,
+		EffectsScript.EX_SHADOW, EffectsScript.EX_SIEGE,
 		EffectsScript.ULT_PUPPET, EffectsScript.ULT_SHADOW, EffectsScript.ULT_SIEGE,
 	]
 	expected.sort()
@@ -229,7 +233,7 @@ func _test_puppet_exclusive(harness: TestHarness) -> void:
 	harness.assert_true(result["ok"])
 	harness.assert_equal(result["value"]["summoned_slot"], 2)
 	var puppet := _slot(state["allies"], 2)
-	harness.assert_equal(_sorted_keys(puppet), _sorted_strings(BattleStateScript.UNIT_KEYS))
+	harness.assert_equal(_sorted_keys(puppet), _sorted_strings(BattleStateScript.UNIT_KEYS + BattleStateScript.OPTIONAL_UNIT_KEYS))
 	harness.assert_true(puppet["alive"])
 	harness.assert_true(puppet["is_puppet"])
 	harness.assert_equal(puppet["class_id"], "puppet")
@@ -241,6 +245,7 @@ func _test_puppet_exclusive(harness: TestHarness) -> void:
 	harness.assert_equal(puppet["buffs"], [])
 	harness.assert_false(puppet["general"])
 	harness.assert_false(puppet["stealth_attack_ready"])
+	harness.assert_equal(puppet["enchantment_capacity"], 0)
 
 	var martyr_state := _state()
 	martyr_state["ally_puppet_martyr_active"] = true
@@ -249,6 +254,19 @@ func _test_puppet_exclusive(harness: TestHarness) -> void:
 	var martyr := _execute(EffectsScript.EX_PUPPET, martyr_state, "ally", "puppet", false, martyr_kit["ports"])
 	harness.assert_true(martyr["ok"])
 	harness.assert_true(martyr_state["allies"][0]["puppet_martyr"])
+
+
+func _test_puppet_attunement(harness: TestHarness) -> void:
+	var state := _state()
+	_make_puppet(state["allies"][2], 100.0, false)
+	var kit := _kit(state)
+	var context := _context(state, "ally", "puppetAttunement", false)
+	context["target_unit_id"] = state["allies"][2]["id"]
+	var result := _registry_execute(EffectsScript.EX_PUPPET_ATTUNEMENT, context, kit["ports"])
+	harness.assert_true(result["ok"], str(result))
+	harness.assert_equal(result["value"]["target_id"], state["allies"][2]["id"])
+	harness.assert_equal(kit["buffs"].get_unit_enchantment_capacity(state["allies"][2]), 1)
+	harness.assert_true(kit["buffs"].apply_unit(state["allies"][2], "enchant"))
 
 
 func _test_puppet_ultimate(harness: TestHarness) -> void:
@@ -477,7 +495,8 @@ func _registry_execute(effect_id: String, context: Dictionary, ports: Variant) -
 
 
 func _context(state: Dictionary, side: String, skill_id: String, ultimate: bool) -> Dictionary:
-	var caster := _caster(state, side, skill_id)
+	var caster_skill := "puppet" if skill_id == "puppetAttunement" else skill_id
+	var caster := _caster(state, side, caster_skill)
 	var effect := ContextsScript.create_effect_context({
 		"source_type": (
 			ContextsScript.EFFECT_SOURCE_TYPE["ULTIMATE"]

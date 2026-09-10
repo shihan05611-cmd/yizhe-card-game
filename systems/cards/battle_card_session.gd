@@ -210,10 +210,16 @@ func end_player_turn() -> RefCounted:
 	var discarded: Variant = _hand_runtime.end_player_turn()
 	if not discarded.ok:
 		return discarded
+	# Card effects may temporarily raise player SP above its limit. The overflow
+	# belongs only to the current input phase and is removed as soon as ending the
+	# turn commits, before enemy and piece actions can consume it.
+	var overflow_removed := maxf(0.0, float(state["sp"]) - float(state["sp_max"]))
+	state["sp"] = minf(float(state["sp"]), float(state["sp_max"]))
 	_trace.append({
 		"event": "player_hand_discarded",
 		"round": state["round"],
 		"result": discarded.to_dict(),
+		"sp_overflow_removed": overflow_removed,
 	})
 	var round_result: Dictionary = _battle_runtime.resolve_round()
 	if not round_result["ok"]:
@@ -254,6 +260,7 @@ func end_player_turn() -> RefCounted:
 	var details := {
 		"status": "settled" if terminal else "player_input",
 		"discard": discarded.to_dict(),
+		"sp_overflow_removed": overflow_removed,
 		"round": resolved,
 		"before_next_draw": before_next_draw,
 		"next_draw": next_draw_snapshot,

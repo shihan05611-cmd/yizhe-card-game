@@ -13,6 +13,7 @@ const ContextsScript = preload("res://core/contexts.gd")
 const StatsScript = preload("res://core/stats.gd")
 const PieceReactionsScript = preload("res://systems/combat/piece_reactions.gd")
 const BattleBootstrapScript = preload("res://app/battle_bootstrap.gd")
+const PresentationQueueScript = preload("res://app/battle_presentation_queue.gd")
 
 
 func run(harness: TestHarness) -> void:
@@ -49,7 +50,7 @@ func _test_launch_projection(harness: TestHarness) -> void:
 	var fixture := _fighting_fixture("m5-05-launch", harness)
 	var state: Dictionary = fixture["state"]
 	state["free_skill_ids"] = ["smallHeal", "smallHeal", "pieceBlock"]
-	state["relic_ids"] = ["spLimitPlus", "shieldPlus", "crossbowPlus", "shentongAssaultBurst", "shentongChargeOverload"]
+	state["relic_ids"] = ["spLimitPlus", "shieldPlus", "crossbowPlus", "rationChip", "shentongAssaultBurst", "shentongChargeOverload"]
 	state["piece_slots"][0]["hp_ratio"] = 0.0
 	state["piece_slots"][3]["hp_ratio"] = 0.5
 	var started := _start_adapter(fixture, harness)
@@ -61,7 +62,16 @@ func _test_launch_projection(harness: TestHarness) -> void:
 	harness.assert_equal(session["deployed_hero_ids"], state["front_hero_ids"] + state["back_hero_ids"])
 	harness.assert_equal(session["free_skill_ids"], ["smallHeal", "smallHeal", "pieceBlock"])
 	harness.assert_equal(session["deck_card_ids"].count("free:smallHeal"), 2)
-	harness.assert_equal(runtime_state["sp_max"], 11.0)
+	harness.assert_equal(runtime_state["base_sp_max"], 4.0)
+	harness.assert_equal(runtime_state["sp_max"], 5.0)
+	harness.assert_equal(runtime_state["sp"], 6.0)
+	runtime_state["sp"] = 4.5
+	var recovery_errors: Array[String] = []
+	var recovery: Dictionary = controller._runtime.component("ports").call_action(
+		"emit_content_event", {"event_id": "battleStart", "payload": {"round": 1}}, recovery_errors,
+	)
+	harness.assert_true(recovery["ok"], "; ".join(recovery_errors))
+	harness.assert_equal(runtime_state["sp"], 5.5, "relic recovery can exceed the adjusted maximum")
 	harness.assert_equal(runtime_state["allies"][0]["hp"], 0.0)
 	harness.assert_false(runtime_state["allies"][0]["alive"])
 	harness.assert_equal(runtime_state["allies"][3]["hp"], roundf(runtime_state["allies"][3]["max_hp"] * 0.5))
@@ -208,22 +218,53 @@ func _test_arc_conductor_from_paid_card(harness: TestHarness) -> void:
 	var result: Variant = controller.play_card(card_id)
 	harness.assert_true(result.ok, result.message)
 	harness.assert_equal(result.details["actual_cost"], 1)
-	harness.assert_equal(battle_state["sp"], 9.0)
+	harness.assert_equal(battle_state["sp"], 3.0)
 	for enemy: Dictionary in targets:
 		harness.assert_equal(enemy["hp"], 0.0)
 		harness.assert_false(enemy["alive"])
 
 	var arc_damage_events: Array[Dictionary] = []
+	var arc_applied_events: Array[Dictionary] = []
 	var arc_death_events: Array[Dictionary] = []
+	var arc_trigger_events: Array[Dictionary] = []
 	for event: Dictionary in controller.presentation_events().slice(events_before):
 		if event["source"].get("id") != "arcConductor":
 			continue
-		if event["event_id"] == "unit_damaged":
+		if event["event_id"] == "damage_applied":
+			arc_applied_events.append(event)
+		elif event["event_id"] == "unit_damaged":
 			arc_damage_events.append(event)
 		elif event["event_id"] == "unit_died":
 			arc_death_events.append(event)
+		elif event["event_id"] == "relicTriggered":
+			arc_trigger_events.append(event)
+	harness.assert_equal(arc_applied_events.size(), targets.size())
 	harness.assert_equal(arc_damage_events.size(), targets.size())
 	harness.assert_equal(arc_death_events.size(), targets.size())
+	harness.assert_equal(arc_trigger_events.size(), 1)
+	var wave_id := str(arc_applied_events[0]["source"].get("presentation_wave_id", ""))
+	harness.assert_false(wave_id.is_empty())
+	harness.assert_true(arc_applied_events.all(func(event: Dictionary) -> bool:
+		return event["source"].get("presentation_wave_id") == wave_id
+	))
+	var trigger_event: Dictionary = arc_trigger_events[0]
+	harness.assert_equal(trigger_event["payload"]["relic_id"], "arcConductor")
+	harness.assert_equal(trigger_event["payload"]["trigger_phase"], "resolved")
+	harness.assert_equal(trigger_event["payload"]["presentation_wave_id"], wave_id)
+	harness.assert_equal(trigger_event["payload"]["damage_per_target"], expected_damage)
+	harness.assert_equal(trigger_event["payload"]["target_count"], targets.size())
+	harness.assert_true(int(trigger_event["sequence"]) > int(arc_death_events[-1]["sequence"]))
+	var queue: Node = PresentationQueueScript.new()
+	var started_sequences: Array[int] = []
+	queue.event_started.connect(func(event: Dictionary, _duration: float) -> void:
+		started_sequences.append(int(event["sequence"])))
+	harness.assert_true(queue.enqueue(arc_applied_events + arc_trigger_events, {}))
+	harness.assert_equal(started_sequences, arc_applied_events.map(func(event: Dictionary) -> int:
+		return int(event["sequence"])
+	), "live Arc Conductor damage starts as one visual wave")
+	queue.drain_for_test()
+	harness.assert_equal(started_sequences[-1], int(trigger_event["sequence"]), "the relic trigger presentation follows its AOE wave")
+	queue.free()
 	for event: Dictionary in arc_damage_events:
 		harness.assert_equal(event["source"]["type"], "relic")
 		harness.assert_equal(event["source"]["side"], "ally")
@@ -249,7 +290,7 @@ func _test_arc_conductor_from_paid_card(harness: TestHarness) -> void:
 
 func _test_arc_conductor_from_super_counter(harness: TestHarness) -> void:
 	var fixture := _fighting_fixture("m5-05-arc-conductor-counter", harness)
-	fixture["state"]["relic_ids"] = ["arcConductor"]
+	fixture["state"]["relic_ids"] = ["arcConductor", "spLimitPlus"]
 	var started := _start_adapter(fixture, harness)
 	if not started["result"].ok:
 		return
@@ -344,9 +385,7 @@ func _test_victory_commit(harness: TestHarness) -> void:
 	harness.assert_equal(state["currency"], before_currency + 15)
 	harness.assert_equal(state["piece_slots"][1]["hp_ratio"], 0.0)
 	harness.assert_equal(_piece_ratios(state), [1.0, 0.0, 1.0, 0.25, 0.25, 0.25])
-	harness.assert_equal(state["permanent_buffs"], [{
-		"id": "fistMastery", "target": {"type": "hero", "id": 6}, "stacks": 1,
-	}])
+	harness.assert_equal(state["permanent_buffs"], [])
 	var committed := state.duplicate(true)
 	var rng_before: int = fixture["raw"].state_snapshot()
 	harness.assert_false(adapter.settle_if_terminal(errors))
@@ -427,6 +466,10 @@ func _test_direct_battle_compatibility(harness: TestHarness) -> void:
 	if result.ok:
 		harness.assert_true(controller.view_model()["initialized"])
 		harness.assert_equal(manager.session_snapshot()["free_skill_ids"], ["pieceBlock", "smallHeal"])
+		var state: Dictionary = controller._runtime.component("state")
+		harness.assert_equal(state["sp"], 4.0)
+		harness.assert_equal(state["sp_max"], 4.0)
+		harness.assert_equal(state["base_sp_max"], 4.0)
 		harness.assert_equal(controller._runtime.component("state")["allies"].map(
 			func(unit: Dictionary) -> String: return unit["class_id"]
 		), ["default", "default", "default", "default", "default", "default"])

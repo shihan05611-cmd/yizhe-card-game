@@ -28,7 +28,7 @@ func _ready() -> void:
 
 func configure(class_id: String, is_enemy: bool) -> void:
 	kind = {"guard": "shield", "archer": "crossbow", "default": "shield"}.get(class_id, class_id)
-	if kind not in ["shield", "crossbow", "assassin", "banner", "puppet"]:
+	if kind not in ["shield", "crossbow", "assassin", "banner", "puppet", "devourer", "echo"]:
 		kind = "shield"
 	enemy = is_enemy
 	visible = true
@@ -36,6 +36,10 @@ func configure(class_id: String, is_enemy: bool) -> void:
 
 func _draw() -> void:
 	_scale = minf(size.y / 188.0, size.x / 108.0)
+	if kind == "devourer":
+		_scale = minf(size.y / 306.0, size.x / 130.0)
+	elif kind == "echo":
+		_scale = minf(size.y / 450.0, size.x / 132.0)
 	_origin = Vector2(size.x * 0.5, size.y - 2.0)
 	_local = Transform2D.IDENTITY
 	_stack.clear()
@@ -48,11 +52,87 @@ func _draw() -> void:
 		"assassin": _assassin(palette, eased)
 		"banner": _banner(palette, eased)
 		"puppet": _puppet(palette, eased)
+		"devourer": _devourer(palette, eased)
+		"echo": _echo(palette, eased)
 	if kind == "crossbow" and shot_progress >= 0.0 and shot_progress < 1.0:
 		_alpha = minf(1.0, (1.0 - shot_progress) / 0.18)
 		var tip := 49.0 + 155.0 * shot_progress
 		_stroke([[tip-20,-115],[tip-11,-115]], palette.gold, 1.4)
 		_polygon([[tip,-115],[tip-5,-118],[tip-14,-115],[tip-5,-112]], palette.light, palette.ink, 1.0)
+
+func _devourer(p: Dictionary, t: float) -> void:
+	# Two-cell stone beast: a hollow jade maw, heavy claws and a horned crown.
+	# Its silhouette stretches through both occupied cells, not a scaled pawn.
+	var stone := {"ink": p.ink, "face": Color("8f7765"), "light": Color("c4ad86"), "side": Color("635143"), "dark": Color("3d3431"), "gold": p.gold, "grain": p.grain}
+	_foot(stone)
+	_slab([[-48,-10],[-51,-29],[-35,-48],[-15,-41],[-16,-14]], stone, true, 4)
+	_slab([[13,-14],[14,-44],[38,-53],[55,-27],[49,-9]], stone, false, 5)
+	for x in [-43, -30, 28, 42]:
+		_polygon([[x-5,-16],[x,-6],[x+5,-19]], p.light, p.ink, 1)
+	_push()
+	_translate(5*t, -5*t)
+	_slab([[-43,-48],[-55,-102],[-50,-195],[-32,-247],[31,-254],[54,-209],[53,-113],[37,-46]], stone, false, 6)
+	# Armour flanges and chained forearms flank the open chest.
+	_slab([[-39,-219],[-59,-211],[-62,-158],[-48,-140],[-39,-167]], stone, true, 4)
+	_slab([[38,-224],[59,-211],[62,-157],[48,-133],[40,-173]], stone, false, 4)
+	_polygon([[-56,-163],[-61,-130],[-49,-110],[-45,-143]], p.dark, p.gold, 1)
+	_polygon([[51,-159],[61,-128],[48,-107],[43,-140]], p.dark, p.gold, 1)
+	# Deep hexagonal mouth with two rows of teeth and a swallowed SP crystal.
+	_polygon([[-31,-204],[0,-229],[34,-205],[37,-127],[0,-84],[-36,-130]], p.ink, p.gold, 3)
+	_polygon([[-22,-191],[1,-209],[24,-190],[25,-136],[1,-111],[-25,-139]], Color("102b2a"), stone.side, 2)
+	for i in 5:
+		var x := -24.0 + i * 12.0
+		_polygon([[x-4,-197],[x+4,-198],[x+1,-179-3*t]], stone.light, p.ink, 1)
+		_polygon([[x-4,-127],[x+4,-126],[x,-145+3*t]], stone.light, p.ink, 1)
+	_polygon([[-12,-158],[0,-177],[14,-157],[0,-140]], Color("83c6b0"), p.gold, 1.5)
+	_stroke([[-16,-156],[-24,-149],[-28,-155]], Color("83c6b0"), 1.2)
+	_stroke([[17,-158],[24,-169],[29,-162]], Color("83c6b0"), 1.2)
+	# Horns are swept upward; small ember eyes frame a sealed brow plate.
+	_slab([[-30,-248],[-48,-268],[-47,-293],[-29,-270],[-18,-260]], stone, true, 3)
+	_slab([[17,-261],[32,-276],[44,-299],[48,-267],[32,-247]], stone, false, 3)
+	_slab([[-27,-251],[-16,-276],[14,-277],[30,-255],[13,-228],[-13,-229]], stone, false, 4)
+	_polygon([[-22,-252],[-6,-247],[-10,-241],[-21,-245]], Color("f0b66b"), p.ink, 1)
+	_polygon([[7,-247],[23,-255],[21,-247],[11,-240]], Color("f0b66b"), p.ink, 1)
+	_stroke([[-27,-66],[-7,-56],[15,-67],[29,-58]], p.gold, 1.2)
+	_pop()
+
+
+func _echo(p: Dictionary, t: float) -> void:
+	# Three-cell resonator: three suspended masks around an exposed ringing core.
+	var stone := {"ink": Color("29272e"), "face": Color("9389a0"), "light": Color("c7bad0"), "side": Color("625a74"), "dark": Color("3a354b"), "gold": p.gold, "grain": Color("ded3df")}
+	_foot(stone)
+	_slab([[-35,-14],[-45,-37],[-23,-62],[24,-63],[45,-37],[34,-14]], stone, true, 5)
+	_slab([[-14,-54],[-20,-91],[-12,-114],[13,-112],[21,-91],[14,-54]], stone, false, 4)
+	var glow := Color("b8cbce")
+	for i in 3:
+		var y := -153.0 - i * 104.0
+		var radius := 43.0 + t * 6.0
+		var ring: Array = []
+		for j in 33:
+			var angle := TAU * float(j) / 32.0
+			ring.append([cos(angle)*radius, y+sin(angle)*25.0])
+		_stroke(ring, Color(glow, 0.28+0.12*t), 1.2)
+	# A long brass spine makes the three segments one continuous entity.
+	_stroke([[0,-64],[0,-401]], stone.ink, 8)
+	_stroke([[0,-69],[0,-403]], p.gold, 2)
+	for i in 3:
+		var y := -150.0 - i * 104.0
+		_push()
+		_translate((1.0 if i % 2 == 0 else -1.0) * 4.0*t, y)
+		_slab([[-31,-35],[-10,-54],[16,-50],[35,-25],[28,28],[0,44],[-29,23]], stone, i == 1, 4)
+		_polygon([[-23,-22],[-6,-17],[-10,-7],[-22,-11]], glow, stone.ink, 1)
+		_polygon([[5,-17],[23,-26],[22,-12],[10,-7]], glow, stone.ink, 1)
+		_polygon([[-10,9],[0,3],[11,9],[9,25],[0,30],[-9,25]], stone.ink, p.gold, 1.5)
+		_stroke([[-26,-31],[-37,-46],[-49,-40],[-54,-16]], p.gold, 1.4)
+		_stroke([[28,-31],[39,-44],[49,-37],[54,-8]], p.gold, 1.4)
+		_polygon([[-52,-11],[-57,3],[-47,16],[-43,0]], stone.side, stone.ink, 1.5)
+		_polygon([[52,-4],[60,11],[48,24],[44,7]], stone.light, stone.ink, 1.5)
+		_pop()
+	_slab([[-20,-405],[0,-441],[22,-407],[0,-392]], stone, false, 4)
+	_polygon([[-7,-413],[0,-430],[8,-411],[0,-404]], glow, p.gold, 1)
+	_stroke([[-31,-88],[-44,-68],[-34,-46]], p.gold, 1.3)
+	_stroke([[30,-91],[43,-69],[33,-47]], p.gold, 1.3)
+
 
 func _point(value: Array) -> Vector2:
 	var v := _local * Vector2(float(value[0]), float(value[1]))

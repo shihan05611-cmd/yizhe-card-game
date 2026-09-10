@@ -16,13 +16,14 @@ const TuningValueDefinition = preload("res://data/definitions/tuning_value_defin
 const EX_SIEGE := "battle.castExclusiveSkill.siege"
 const EX_PRESS_OPENING := "battle.castExclusiveSkill.pressOpening"
 const EX_PUPPET := "battle.castExclusiveSkill.puppet"
+const EX_PUPPET_ATTUNEMENT := "battle.castExclusiveSkill.puppetAttunement"
 const EX_SHADOW := "battle.castExclusiveSkill.shadow"
 const ULT_SIEGE := "battle.castUltimateByHero.siege"
 const ULT_PUPPET := "battle.castUltimateByHero.puppet"
 const ULT_SHADOW := "battle.castUltimateByHero.shadow"
 
 const CONTEXT_REQUIRED_KEYS := ["state", "caster", "source_effect"]
-const CONTEXT_OPTIONAL_KEYS := ["growth_piece_ratios"]
+const CONTEXT_OPTIONAL_KEYS := ["growth_piece_ratios", "target_unit_id"]
 const EFFECT_CONTEXT_KEYS := [
 	"source_type", "source_id", "source_name", "source_side", "source_actor_id",
 	"counts_as_skill_cast", "spent_skill_points", "free_cast",
@@ -42,6 +43,8 @@ static func handler_map() -> Dictionary:
 			return _execute("siege", false, context, ports),
 		EX_PUPPET: func(context: Dictionary, ports: Variant) -> Dictionary:
 			return _execute("puppet", false, context, ports),
+		EX_PUPPET_ATTUNEMENT: func(context: Dictionary, ports: Variant) -> Dictionary:
+			return _execute("puppetAttunement", false, context, ports),
 		EX_SHADOW: func(context: Dictionary, ports: Variant) -> Dictionary:
 			return _execute("shadow", false, context, ports),
 		ULT_SIEGE: func(context: Dictionary, ports: Variant) -> Dictionary:
@@ -61,7 +64,7 @@ static func is_usable(
 	errors: Array[String] = [],
 ) -> bool:
 	errors.clear()
-	if skill_id not in ["siege", "puppet", "shadow", "pressOpening"]:
+	if skill_id not in ["siege", "puppet", "puppetAttunement", "shadow", "pressOpening"]:
 		errors.append("unknown Siege/Puppet/Shadow hero skill id: %s" % str(skill_id))
 		return false
 	if typeof(is_ultimate) != TYPE_BOOL:
@@ -103,6 +106,8 @@ static func _execute(
 				return _siege_exclusive(context, ports)
 			"puppet":
 				return _puppet_exclusive(context, ports)
+			"puppetAttunement":
+				return _puppet_attunement_exclusive(context, ports)
 			"shadow":
 				return _shadow_exclusive(context, ports)
 	return CombatPortsScript.fail("unreachable Siege/Puppet/Shadow hero effect branch")
@@ -142,6 +147,9 @@ static func _is_usable_validated(
 		return false
 	if skill_id == "puppet":
 		return _dead_slots(state, side).size() > 0
+	if skill_id == "puppetAttunement":
+		var buffs: Variant = ports.service("buffs", errors)
+		return not _puppet_attunement_target(context, buffs).is_empty()
 	if skill_id == "shadow":
 		var buffs: Variant = ports.service("buffs", errors)
 		if not errors.is_empty() or not _preflight_unit_buff(buffs, _team(state, side), STEALTH_ID, errors):
@@ -317,6 +325,25 @@ static func _puppet_exclusive(context: Dictionary, ports: Variant) -> Dictionary
 		"skill_id": "puppet", "ultimate": false, "committed": true,
 		"summoned_slot": target["slot"], "summoned_id": target["id"],
 		"puppet_martyr": target["puppet_martyr"],
+	})
+
+
+static func _puppet_attunement_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
+	var errors: Array[String] = []
+	var buffs: Variant = ports.service("buffs", errors)
+	if not errors.is_empty():
+		return CombatPortsScript.fail("puppet attunement Buff service unavailable%s" % _error_suffix(errors))
+	var target := _puppet_attunement_target(context, buffs)
+	if target.is_empty():
+		return CombatPortsScript.fail("puppet attunement requires a living unawakened puppet")
+	if not buffs.set_unit_enchantment_capacity(target, 1, errors):
+		return CombatPortsScript.fail("puppet attunement capacity update failed%s" % _error_suffix(errors))
+	var logged := _log(context, ports, "释放点化。")
+	if not logged["ok"]:
+		return _after_commit_failure("puppet attunement log failed", logged, true)
+	return CombatPortsScript.ok({
+		"skill_id": "puppetAttunement", "ultimate": false, "committed": true,
+		"target_id": target["id"], "enchantment_capacity": 1,
 	})
 
 
@@ -538,7 +565,10 @@ static func _validate_context(
 	if canonical == null or not is_same(caster, canonical):
 		errors.append("hero effect caster must be the matching canonical state hero reference")
 		return false
-	if caster["ex_skill"] != skill_id and not (skill_id == "pressOpening" and caster["ex_skill"] == "siege"):
+	if caster["ex_skill"] != skill_id and not (
+		(skill_id == "pressOpening" and caster["ex_skill"] == "siege")
+		or (skill_id == "puppetAttunement" and caster["ex_skill"] == "puppet")
+	):
 		errors.append("hero effect caster.ex_skill does not match handler")
 		return false
 	if effect["source_side"] == "ally" and caster["deployed"] != true:
@@ -547,6 +577,11 @@ static func _validate_context(
 	if context.has("growth_piece_ratios") and context["growth_piece_ratios"] != null:
 		errors.append("Siege/Puppet/Shadow effects do not own permanent Run growth")
 		return false
+	if context.has("target_unit_id"):
+		var target_id: Variant = context["target_unit_id"]
+		if not ((typeof(target_id) == TYPE_INT and target_id > 0) or (typeof(target_id) == TYPE_STRING and not String(target_id).is_empty())):
+			errors.append("hero effect context.target_unit_id must be a stable unit id")
+			return false
 	return true
 
 
@@ -649,12 +684,37 @@ static func _puppet_projection(unit: Dictionary, martyr: bool) -> Dictionary:
 		"fixed_max_hp": PUPPET_HP, "puppet_martyr": martyr,
 		"disarm_turns": 0, "stealth_attack_ready": false, "special_id": null,
 		"echo_damage_bonus": 0.0, "hp_threshold_crossed": false,
+		"enchantment_capacity": 0,
 	}
 
 
 static func _copy_unit(source: Dictionary, target: Dictionary) -> void:
 	for key in BattleStateScript.UNIT_KEYS:
 		target[key] = source[key].duplicate(true) if source[key] is Array or source[key] is Dictionary else source[key]
+	for key in BattleStateScript.OPTIONAL_UNIT_KEYS:
+		if source.has(key):
+			target[key] = source[key]
+		else:
+			target.erase(key)
+
+
+static func _puppet_attunement_target(context: Dictionary, buffs: Variant) -> Dictionary:
+	var side: String = context["source_effect"]["source_side"]
+	var candidates: Array[Dictionary] = []
+	for unit: Dictionary in _team(context["state"], side):
+		if unit["alive"] and unit["is_puppet"] and buffs.get_unit_enchantment_capacity(unit) == 0:
+			candidates.append(unit)
+	if context.has("target_unit_id"):
+		for unit: Dictionary in candidates:
+			if unit["id"] == context["target_unit_id"]:
+				return unit
+		return {}
+	candidates.sort_custom(func(left: Dictionary, right: Dictionary) -> bool:
+		if int(left["slot"]) != int(right["slot"]):
+			return int(left["slot"]) < int(right["slot"])
+		return _stable_id_less(left, right)
+	)
+	return candidates[0] if not candidates.is_empty() else {}
 
 
 static func _dead_slots(state: Dictionary, side: String) -> Array[Dictionary]:
@@ -723,7 +783,7 @@ static func _closed_context(value: Variant, errors: Array[String]) -> bool:
 	if typeof(value) != TYPE_DICTIONARY:
 		errors.append("hero effect context must be a canonical Dictionary")
 		return false
-	if value.size() < CONTEXT_REQUIRED_KEYS.size() or value.size() > CONTEXT_REQUIRED_KEYS.size() + 1:
+	if value.size() < CONTEXT_REQUIRED_KEYS.size() or value.size() > CONTEXT_REQUIRED_KEYS.size() + CONTEXT_OPTIONAL_KEYS.size():
 		errors.append("hero effect context has a non-canonical field set")
 		return false
 	for key in CONTEXT_REQUIRED_KEYS:

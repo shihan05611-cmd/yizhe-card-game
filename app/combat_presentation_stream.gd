@@ -84,10 +84,14 @@ func capture_content(request: Dictionary) -> Dictionary:
 
 func capture_combat(request: Dictionary) -> Dictionary:
 	var event_id := str(request.get("event_id", request.get("event", "combatEvent")))
+	var source := _source_from_payload(request, "combat")
+	# Combat feedback emitted from inside a piece hit (for example an enemy
+	# special resource drain) belongs to that strike's visual segment.
+	_source_presentation_action(source, event_id, request)
 	append(
 		"combat",
 		event_id,
-		_source_from_payload(request, "combat"),
+		source,
 		_target_from_payload(request),
 		request,
 	)
@@ -181,13 +185,25 @@ func _source_presentation_action(source: Dictionary, event_id: String, payload: 
 
 
 func _source_presentation_wave(source: Dictionary, event_id: String, payload: Dictionary) -> void:
-	# Hero handlers opt in with a per-cast hit index.  The batch and canonical
-	# source signature keep two casts of the same skill distinct, while targets
-	# belonging to one hit resolve in one visual wave.
-	if event_id != "damage_applied" or source.get("action_phase") != "skill_action":
+	# Effect adapters can provide an explicit per-trigger wave id. This lets a
+	# single-hit area effect present every target together while keeping repeated
+	# triggers and multi-hit effects in separate waves.
+	if event_id != "damage_applied":
 		return
 	var metadata: Variant = payload.get("metadata", {})
-	if typeof(metadata) != TYPE_DICTIONARY or not metadata.has("presentation_wave_index"):
+	if typeof(metadata) != TYPE_DICTIONARY:
+		return
+	var explicit_wave_id: Variant = metadata.get("presentation_wave_id")
+	if typeof(explicit_wave_id) == TYPE_STRING and not explicit_wave_id.strip_edges().is_empty():
+		source["presentation_wave_id"] = explicit_wave_id
+		var explicit_hit_index: Variant = metadata.get("presentation_hit_index")
+		if typeof(explicit_hit_index) == TYPE_INT and int(explicit_hit_index) >= 0:
+			source["presentation_hit_index"] = int(explicit_hit_index)
+		return
+	# Hero handlers opt in with a per-cast hit index. The batch and canonical
+	# source signature keep two casts of the same skill distinct, while targets
+	# belonging to one hit resolve in one visual wave.
+	if source.get("action_phase") != "skill_action" or not metadata.has("presentation_wave_index"):
 		return
 	var wave_index: Variant = metadata["presentation_wave_index"]
 	if typeof(wave_index) != TYPE_INT or int(wave_index) < 0:

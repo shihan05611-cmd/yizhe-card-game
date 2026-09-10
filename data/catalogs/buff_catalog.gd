@@ -11,6 +11,8 @@ const PERSISTENCE_BATTLE := "battle"
 const PERSISTENCE_PERMANENT := "permanent"
 const TARGET_PIECE_SLOT := "pieceSlot"
 const TARGET_HERO := "hero"
+const KIND_NORMAL := "normal"
+const KIND_ENCHANTMENT := "enchantment"
 
 
 static func build(tuning: Dictionary) -> Dictionary:
@@ -38,6 +40,11 @@ static func build_from(definitions: Array, errors: Array[String]) -> Dictionary:
 		)
 		Validation.non_negative_int(definition.max_stacks, "buff maxStacks", errors)
 		Validation.non_negative_int(definition.default_duration, "buff defaultDuration", errors)
+		Validation.enum_value(definition.kind, [KIND_NORMAL, KIND_ENCHANTMENT], "buff kind", errors)
+		if typeof(definition.eviction_revert) != TYPE_DICTIONARY:
+			errors.append("buff evictionRevert must be a Dictionary")
+		elif definition.kind != KIND_ENCHANTMENT and not definition.eviction_revert.is_empty():
+			errors.append("only enchantments may declare evictionRevert")
 		if definition.persistence == PERSISTENCE_BATTLE:
 			Validation.enum_value(
 				definition.scope,
@@ -76,9 +83,25 @@ static func _source_definitions(tuning: Dictionary) -> Array:
 	var march_duration: int = max(1, _tuning_int(tuning, "ultAscendMarchTurns", 2))
 	var flame_leech_duration: int = max(1, _tuning_int(tuning, "ultFlameLeechTurns", 2))
 	var break_formation_duration: int = max(1, _tuning_int(tuning, "ultBreakFormationTurns", 2))
+	var general_revert := {
+		"flag": "general",
+		"first": {
+			"atk": _tuning_number(tuning, "ascendAtkBonus", 0.0),
+			"max_hp": _tuning_number(tuning, "ascendHpBonus", 80.0),
+			"base_block_rate": _tuning_number(tuning, "ascendBlockBonus", 0.1),
+			"crit_rate": 0.05,
+		},
+		"repeat": {
+			"atk": _tuning_number(tuning, "ascendRepeatAtkBonus", 3.0),
+			"max_hp": 0.0,
+			"base_block_rate": _tuning_number(tuning, "ascendRepeatBlockBonus", 0.03),
+			"crit_rate": _tuning_number(tuning, "ascendRepeatCritBonus", 0.03),
+		},
+	}
 	return [
 		Buff.new("burn", "灼烧", SCOPE_UNIT, true, true, 0, burn_duration, true, false, "回合结算时每层造成持续伤害。"),
-		Buff.new("enchant", "附魔", SCOPE_UNIT, false, true, enchant_cap, 0, false, false, "攻击命中后按层数施加灼烧。"),
+		Buff.new("enchant", "炎华附魔", SCOPE_UNIT, false, true, enchant_cap, 0, false, false, "攻击命中后按层数施加灼烧。", PERSISTENCE_BATTLE, [], KIND_ENCHANTMENT),
+		Buff.new("general", "将军", SCOPE_UNIT, false, true, 0, 0, false, false, "封命赋予的将军附魔；重复释放继续强化属性。", PERSISTENCE_BATTLE, [], KIND_ENCHANTMENT, general_revert),
 		Buff.new("knightChivalry", "骑士道", SCOPE_UNIT, false, true, 0, 0, false, false, "下一次反击强化。"),
 		Buff.new("march", "出征", SCOPE_UNIT, false, false, 1, march_duration, false, true, "将军攻击同列目标并必定暴击。"),
 		Buff.new("stealth", "潜行", SCOPE_UNIT, false, false, 1, 1, false, true, "暂时不被常规锁定，下一次攻击改为锁定低生命目标。"),
@@ -86,15 +109,17 @@ static func _source_definitions(tuning: Dictionary) -> Array:
 		Buff.new("breakMarked", "破势", SCOPE_UNIT, true, false, 1, 0, false, false, "受到伤害提高，破阵领域中额外提高受暴击率。"),
 		Buff.new("tempBlock", "临时格挡", SCOPE_SIDE, false, false, 1, 1, false, true, "全体格挡率临时提高。"),
 		Buff.new("pieceDamageUp", "棋子增伤", SCOPE_SIDE, false, false, 1, 1, false, true, "棋子直接伤害提高。"),
+		Buff.new("flameCastCount", "炎华施放", SCOPE_SIDE, false, true, 0, 0, false, false, "记录本场炎华成功释放次数。"),
 		Buff.new("bloodShiftVulnerable", "血移易伤", SCOPE_UNIT, true, false, 1, 1, false, true, "受到伤害提高。"),
 		Buff.new("bloodShiftGuard", "血移庇护", SCOPE_UNIT, false, false, 1, 1, false, true, "受到伤害降低。"),
 		Buff.new("flameLeech", "炎汲", SCOPE_SIDE, false, false, 1, flame_leech_duration, false, true, "灼烧目标攻击本方时触发治疗。"),
 		Buff.new("breakFormation", "破阵领域", SCOPE_SIDE, false, false, 1, break_formation_duration, false, true, "本方对敌方伤害提高，并强化破势目标受暴击率。"),
 		Buff.new("pursuit", "追击", SCOPE_UNIT, false, true, 0, 0, false, false, "下一次棋子行动后追加一次追击。"),
-		Buff.new("flamePractice", "炎华修习", null, false, true, 0, 0, false, false, "记录炎术士在本轮 Run 中完成的永久投资次数。", PERSISTENCE_PERMANENT, [TARGET_HERO]),
-		Buff.new("flameEnchant", "引火", null, false, true, 0, 0, false, false, "记录棋子位置获得的引火层数。", PERSISTENCE_PERMANENT, [TARGET_PIECE_SLOT]),
-		Buff.new("marshalPromotion", "元帅晋升", null, false, true, 0, 0, false, false, "记录棋子位置获得的元帅永久成长层数。", PERSISTENCE_PERMANENT, [TARGET_PIECE_SLOT]),
-		Buff.new("fistMastery", "永久拳意", null, false, true, 0, 0, false, false, "每层使拳劲与大招伤害+5%；每5层使大招基础段数+1。", PERSISTENCE_PERMANENT, [TARGET_HERO]),
+		Buff.new("nextRoundAction", "下回合额外行动", SCOPE_UNIT, false, true, 0, 2, true, true, "每层使该弈子在下回合获得一次额外行动；行动结算后消耗。"),
+		Buff.new("flamePractice", "炎华修习（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", PERSISTENCE_PERMANENT, [TARGET_HERO]),
+		Buff.new("flameEnchant", "引火（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", PERSISTENCE_PERMANENT, [TARGET_PIECE_SLOT]),
+		Buff.new("marshalPromotion", "元帅晋升（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", PERSISTENCE_PERMANENT, [TARGET_PIECE_SLOT]),
+		Buff.new("fistMastery", "永久拳意（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", PERSISTENCE_PERMANENT, [TARGET_HERO]),
 	]
 
 
@@ -102,4 +127,11 @@ static func _tuning_int(tuning: Dictionary, id: String, fallback: int) -> int:
 	var definition: Variant = tuning.get(id)
 	if definition is Resource and definition.get_script() == TuningValue and typeof(definition.value) in [TYPE_INT, TYPE_FLOAT]:
 		return int(definition.value)
+	return fallback
+
+
+static func _tuning_number(tuning: Dictionary, id: String, fallback: float) -> float:
+	var definition: Variant = tuning.get(id)
+	if definition is Resource and definition.get_script() == TuningValue and typeof(definition.value) in [TYPE_INT, TYPE_FLOAT]:
+		return float(definition.value)
 	return fallback

@@ -95,19 +95,19 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("ascend exclusive selects promotes repeats caps heals and is side-neutral", func() -> void:
 		_test_ascend_exclusive(harness)
 	)
-	harness.run_test("ascend Run growth stages atomically and failure preserves battle state", func() -> void:
+	harness.run_test("ascend ignores legacy growth state and requires an initial allied target", func() -> void:
 		_test_ascend_growth(harness)
 	)
 	harness.run_test("ascend ultimate heals by side tuning applies march and preserves real no-target semantics", func() -> void:
 		_test_ascend_ultimate(harness)
 	)
-	harness.run_test("fist exclusive covers momentum zero through five random unique targets crit and enemy side", func() -> void:
+	harness.run_test("fist exclusive supports unbounded momentum with post-five damage only", func() -> void:
 		_test_fist_exclusive(harness)
 	)
-	harness.run_test("fist exclusive stages pre-cast mastery and reports sequential damage failure", func() -> void:
+	harness.run_test("fist exclusive ignores legacy mastery and reports sequential damage failure", func() -> void:
 		_test_fist_growth_failure(harness)
 	)
-	harness.run_test("fist ultimate uses mastery hits kill extension retargets and never clears momentum", func() -> void:
+	harness.run_test("fist ultimate caps momentum hit growth at five and never clears momentum", func() -> void:
 		_test_fist_ultimate(harness)
 	)
 	harness.run_test("closed contexts invalid RNG and record failures fail without invented cast events", func() -> void:
@@ -178,7 +178,9 @@ func _test_ascend_exclusive(harness: TestHarness) -> void:
 	var state := _state()
 	state["marshal_target_id"] = 2
 	var kit := _kit(state)
-	var first := _execute(EffectsScript.EX_ASCEND, state, "ally", "ascend", false, kit["ports"])
+	var first_context := _context(state, "ally", "ascend", false)
+	first_context["target_unit_id"] = 2
+	var first := _registry_execute(EffectsScript.EX_ASCEND, first_context, kit["ports"])
 	harness.assert_true(first["ok"])
 	harness.assert_equal(first["value"]["target_slot"], 2)
 	harness.assert_true(state["allies"][1]["general"])
@@ -193,7 +195,7 @@ func _test_ascend_exclusive(harness: TestHarness) -> void:
 	harness.assert_true(repeated["value"]["repeated"])
 	harness.assert_equal(repeated["value"]["healed"], 4.0)
 	harness.assert_equal(state["allies"][1]["hp"], 104.0)
-	harness.assert_equal(state["allies"][1]["atk"], 11.5)
+	harness.assert_equal(state["allies"][1]["atk"], 13.0)
 	harness.assert_equal(state["allies"][1]["base_block_rate"], 0.95)
 	harness.assert_equal(state["allies"][1]["crit_rate"], 0.95)
 
@@ -216,35 +218,40 @@ func _test_ascend_exclusive(harness: TestHarness) -> void:
 
 func _test_ascend_growth(harness: TestHarness) -> void:
 	var state := _state()
-	state["marshal_target_id"] = 2
+	state["allies"][0]["general"] = true
 	var run_state := {"permanent_buffs": []}
 	var kit := _kit(state, FixedRng.new(), run_state)
-	var ratios := _ratios()
-	ratios[2] = 0.0
-	var context := _context(state, "ally", "ascend", false, ratios)
+	var missing_target := _registry_execute(
+		EffectsScript.EX_ASCEND, _context(state, "ally", "ascend", false), kit["ports"],
+	)
+	harness.assert_false(missing_target["ok"])
+	harness.assert_equal(run_state["permanent_buffs"], [])
+	var context := _context(state, "ally", "ascend", false, _ratios())
+	context["target_unit_id"] = 4
 	var result := _registry_execute(EffectsScript.EX_ASCEND, context, kit["ports"])
 	harness.assert_true(result["ok"])
-	harness.assert_equal(result["value"]["target_slot"], 1)
-	harness.assert_equal(run_state["permanent_buffs"], [{
-		"id": "marshalPromotion", "target": {"type": "pieceSlot", "id": 1}, "stacks": 1,
-	}])
+	harness.assert_equal(result["value"]["target_slot"], 4)
+	harness.assert_false(result["value"]["repeated"], "a stale legacy general flag does not bypass first-cast targeting")
+	harness.assert_equal(run_state["permanent_buffs"], [])
+	harness.assert_equal(kit["metrics"]["growth_actions"], 0)
 
-	var failed_state := _state()
-	var failed_run := {"permanent_buffs": []}
-	var failed_kit := _kit(failed_state, FixedRng.new(), failed_run, {
+	var ignored_failure_state := _state()
+	var ignored_failure_run := {"permanent_buffs": []}
+	var ignored_failure_kit := _kit(ignored_failure_state, FixedRng.new(), ignored_failure_run, {
 		GrowthPortScript.ACTION_STAGE: func(_request: Dictionary) -> Dictionary:
 			return CombatPortsScript.fail("injected growth failure"),
 	})
-	var before := str(failed_state)
-	var failed := _registry_execute(
+	var ignored_context := _context(ignored_failure_state, "ally", "ascend", false, _ratios())
+	ignored_context["target_unit_id"] = 1
+	var ignored := _registry_execute(
 		EffectsScript.EX_ASCEND,
-		_context(failed_state, "ally", "ascend", false, _ratios()),
-		failed_kit["ports"],
+		ignored_context,
+		ignored_failure_kit["ports"],
 	)
-	harness.assert_false(failed["ok"])
-	harness.assert_contains(failed["error"], "no battle state committed")
-	harness.assert_equal(str(failed_state), before)
-	harness.assert_equal(failed_run["permanent_buffs"], [])
+	harness.assert_true(ignored["ok"], str(ignored))
+	harness.assert_true(ignored_failure_state["allies"][0]["general"])
+	harness.assert_equal(ignored_failure_run["permanent_buffs"], [])
+	harness.assert_equal(ignored_failure_kit["metrics"]["growth_actions"], 0)
 
 
 func _test_ascend_ultimate(harness: TestHarness) -> void:
@@ -278,7 +285,7 @@ func _test_ascend_ultimate(harness: TestHarness) -> void:
 
 
 func _test_fist_exclusive(harness: TestHarness) -> void:
-	for momentum in range(0, 6):
+	for momentum in [0, 1, 2, 3, 4, 5, 6, 10]:
 		var state := _state()
 		var caster := _caster(state, "ally", "fist")
 		caster["fist_momentum"] = momentum
@@ -288,15 +295,16 @@ func _test_fist_exclusive(harness: TestHarness) -> void:
 		harness.assert_true(result["ok"], "momentum %d should execute" % momentum)
 		var expected_targets := 3 if momentum >= 4 else (2 if momentum >= 2 else 1)
 		harness.assert_equal(result["value"]["hits"], expected_targets)
-		harness.assert_equal(result["value"]["momentum_after"], mini(5, momentum + 1))
+		harness.assert_equal(result["value"]["momentum_after"], momentum + 1)
 		harness.assert_equal(damage.records.size(), expected_targets)
 		var expected_wave: Array[int] = []
 		for _target in expected_targets:
 			expected_wave.append(0)
 		harness.assert_equal(damage.metadata_records.map(func(value: Dictionary) -> Variant: return value.get("presentation_wave_index")), expected_wave, "宁不凡拳劲的同段多目标共享一个 presentation wave")
-		harness.assert_equal(
-			float(damage.records[0]["crit_rate"]), 0.05 + float(momentum) * 0.04,
-		)
+		harness.assert_equal(float(damage.records[0]["crit_rate"]), 0.05 + float(mini(5, momentum)) * 0.04)
+		var core := mini(5, momentum)
+		var expected_raw := 10.0 * (1.0 + float(core) * 0.15 + float(maxi(0, momentum - 5)) * 0.05)
+		harness.assert_equal(float(damage.records[0]["raw_amount"]), expected_raw)
 		var unique := {}
 		for id: Variant in result["value"]["target_ids"]:
 			unique[id] = true
@@ -334,9 +342,9 @@ func _test_fist_growth_failure(harness: TestHarness) -> void:
 	)
 	harness.assert_false(result["ok"])
 	harness.assert_contains(result["error"], "state committed")
-	harness.assert_equal(run_state["permanent_buffs"][0]["stacks"], 6)
+	harness.assert_equal(run_state["permanent_buffs"][0]["stacks"], 5)
 	harness.assert_equal(damage.records.size(), 1)
-	harness.assert_equal(damage.records[0]["raw_amount"], 15.5, "10 * (1 + .30 momentum + .25 pre-layer mastery)")
+	harness.assert_equal(damage.records[0]["raw_amount"], 13.0, "legacy mastery never modifies battle damage")
 	harness.assert_equal(_caster(state, "ally", "fist")["fist_momentum"], 2, "momentum commits only after every target")
 
 	var stage_state := _state()
@@ -346,16 +354,15 @@ func _test_fist_growth_failure(harness: TestHarness) -> void:
 		GrowthPortScript.ACTION_STAGE: func(_request: Dictionary) -> Dictionary:
 			return CombatPortsScript.fail("injected fist growth failure"),
 	})
-	var stage_before := str(stage_state)
-	var stage_failed := _registry_execute(
+	var stage_result := _registry_execute(
 		EffectsScript.EX_FIST,
 		_context(stage_state, "ally", "fist", false, _ratios()), stage_kit["ports"],
 	)
-	harness.assert_false(stage_failed["ok"])
-	harness.assert_contains(stage_failed["error"], "no combat state committed")
-	harness.assert_equal(str(stage_state), stage_before)
+	harness.assert_true(stage_result["ok"], str(stage_result))
+	harness.assert_equal(_caster(stage_state, "ally", "fist")["fist_momentum"], 1)
 	harness.assert_equal(stage_run["permanent_buffs"], [])
-	harness.assert_equal(stage_rng.cursor, 0, "failed growth must not consume combat target RNG")
+	harness.assert_equal(stage_kit["metrics"]["growth_actions"], 0)
+	harness.assert_equal(stage_rng.cursor, 1)
 
 
 func _test_fist_ultimate(harness: TestHarness) -> void:
@@ -372,8 +379,8 @@ func _test_fist_ultimate(harness: TestHarness) -> void:
 		_context(state, "ally", "fist", true, _ratios()), kit["ports"],
 	)
 	harness.assert_true(result["ok"])
-	harness.assert_equal(result["value"]["base_hits"], 8)
-	harness.assert_equal(result["value"]["hits"], 8)
+	harness.assert_equal(result["value"]["base_hits"], 7)
+	harness.assert_equal(result["value"]["hits"], 7)
 	harness.assert_equal(caster["fist_momentum"], 4)
 	harness.assert_equal(run_state["permanent_buffs"][0]["stacks"], 5)
 	harness.assert_equal(damage.metadata_records.map(func(value: Dictionary) -> Variant: return value.get("presentation_wave_index")), range(0, int(result["value"]["hits"])), "宁不凡大招 gives every sequential strike its own presentation hit index")

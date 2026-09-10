@@ -17,6 +17,7 @@ var _damage: Variant = null
 var _buffs: Variant = null
 var _burn_settlement: Variant = null
 var _relic_system: Variant = null
+var _relic_presentation_sequence := 0
 
 
 func _init(state: Dictionary) -> void:
@@ -92,13 +93,36 @@ func _deal_relic_damage_to_all_enemies(
 ) -> Variant:
 	if not _ready():
 		return _failure("relic action adapter is not bound")
+	_relic_presentation_sequence += 1
+	var presentation_wave_id := "relic-wave:%s:%d" % [
+		str(source_id), _relic_presentation_sequence,
+	]
+	var target_count := 0
 	for enemy: Dictionary in _state["enemies"].duplicate():
 		if not enemy["alive"]:
 			continue
-		var result: Variant = _apply_relic_damage(enemy, raw, source_id, source_name)
+		target_count += 1
+		var result: Variant = _apply_relic_damage(enemy, raw, source_id, source_name, {
+			"presentation_wave_id": presentation_wave_id,
+			"presentation_hit_index": 0,
+		})
 		if typeof(result) == TYPE_DICTIONARY and result.get("ok") == false:
 			return result
-	return true
+	var effect_errors: Array[String] = []
+	var source_effect := _relic_effect(source_id, source_name, effect_errors)
+	if not effect_errors.is_empty():
+		return _failure("relic trigger effect context failed%s" % _error_suffix(effect_errors))
+	var emitted: Dictionary = _ports.call_action("emit_combat_event", {
+		"event_id": "relicTriggered",
+		"relic_id": str(source_id),
+		"relic_name": str(source_name),
+		"trigger_phase": "resolved",
+		"presentation_wave_id": presentation_wave_id,
+		"damage_per_target": raw,
+		"target_count": target_count,
+		"source_effect": source_effect,
+	})
+	return true if emitted["ok"] else _failure(emitted["error"])
 
 
 func _spread_burn_on_enemy_death(dead_enemy: Variant) -> Variant:
@@ -181,6 +205,7 @@ func _apply_relic_damage(
 	raw: Variant,
 	source_id: Variant,
 	source_name: Variant,
+	metadata: Dictionary = {},
 ) -> Variant:
 	if not _ready() or typeof(target) != TYPE_DICTIONARY:
 		return _failure("relic damage requires a bound runtime and unit target")
@@ -197,7 +222,7 @@ func _apply_relic_damage(
 	}, errors)
 	if not errors.is_empty():
 		return _failure("relic damage context failed%s" % _error_suffix(errors))
-	var result: Dictionary = _damage.apply(target, context, {}, errors)
+	var result: Dictionary = _damage.apply(target, context, metadata, errors)
 	if result.is_empty() or not errors.is_empty():
 		return _failure("relic damage failed%s" % _error_suffix(errors))
 	return result
@@ -237,7 +262,7 @@ func _heal(
 func _gain_skill_points(amount: Variant) -> Variant:
 	if not _ready() or not _finite_number(amount):
 		return _failure("relic skill point gain requires a finite amount")
-	_state["sp"] = clampf(float(_state["sp"]) + float(amount), 0.0, float(_state["sp_max"]))
+	_state["sp"] = maxf(0.0, float(_state["sp"]) + float(amount))
 	return true
 
 

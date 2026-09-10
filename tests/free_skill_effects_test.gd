@@ -37,10 +37,10 @@ func run(harness: TestHarness) -> void:
 	var tests_before := harness.tests
 	var assertions_before := harness.assertions
 	var failures_before := harness.failures
-	harness.run_test("free skill module exposes exactly eleven stable registry handlers", func() -> void:
+	harness.run_test("free skill module exposes exactly thirteen stable registry handlers", func() -> void:
 		_test_handler_surface(harness)
 	)
-	harness.run_test("all eleven effects execute for both canonical battle sides without spending SP", func() -> void:
+	harness.run_test("all thirteen effects execute for both canonical battle sides without effect-layer payment", func() -> void:
 		_test_all_effects_both_sides(harness)
 	)
 	harness.run_test("burn detonate uses Web target formula source context and stable death spread", func() -> void:
@@ -79,7 +79,7 @@ func _test_handler_surface(harness: TestHarness) -> void:
 	harness.assert_true(registry.register_map(handlers, errors))
 	harness.assert_equal(errors, [])
 	harness.assert_equal(registry.handler_ids(), expected)
-	harness.assert_equal(handlers.size(), 11)
+	harness.assert_equal(handlers.size(), 13)
 	var copy := registry.handlers_snapshot()
 	copy.erase(expected[0])
 	harness.assert_equal(registry.handler_ids(), expected)
@@ -97,8 +97,10 @@ func _test_all_effects_both_sides(harness: TestHarness) -> void:
 			harness.assert_true(result["ok"], "%s must execute for %s: %s" % [skill_id, side, result.get("error", "")])
 			if result["ok"]:
 				_assert_effect_outcome(harness, fixture, skill_id, result["value"])
-			harness.assert_equal(state["sp"], sp_before, "%s must not spend player SP" % skill_id)
-			harness.assert_equal(state["enemy_sp"], enemy_sp_before, "%s must not spend enemy SP" % skill_id)
+			var expected_sp := float(sp_before) + (2.0 if skill_id == "spSurge" and side == "ally" else 0.0)
+			var expected_enemy_sp := float(enemy_sp_before) + (2.0 if skill_id == "spSurge" and side == "enemy" else 0.0)
+			harness.assert_equal(state["sp"], expected_sp, "%s changes only its caster-side resource" % skill_id)
+			harness.assert_equal(state["enemy_sp"], expected_enemy_sp, "%s changes only its caster-side resource" % skill_id)
 			var errors: Array[String] = []
 			harness.assert_true(BattleStateScript.validate(state, errors), "%s must preserve canonical state: %s" % [skill_id, errors])
 
@@ -129,7 +131,13 @@ func _assert_effect_outcome(
 			harness.assert_equal(value["plan"]["damage_multiplier"], 1.5)
 		"pieceAction":
 			harness.assert_equal(value["target_id"], 2)
-			harness.assert_equal(_unit(state, side, 2)["extra_action_charges"], 1)
+			if side == "ally":
+				harness.assert_equal(value["buff_id"], "nextRoundAction")
+				harness.assert_equal(value["activation_round"], int(state["round"]) + 1)
+				harness.assert_equal(buffs.get_unit_state(_unit(state, side, 2), "nextRoundAction")["layer_turns"], [2])
+				harness.assert_equal(_unit(state, side, 2)["extra_action_charges"], 0, "player effect does not also grant a legacy charge")
+			else:
+				harness.assert_equal(_unit(state, side, 2)["extra_action_charges"], 1, "enemy keeps immediate legacy charge")
 		"pieceBlock":
 			harness.assert_equal(value["buff_id"], "tempBlock")
 			harness.assert_equal(buffs.get_side_stacks(side, "tempBlock"), 1)
@@ -263,6 +271,11 @@ func _test_fail_closed(harness: TestHarness) -> void:
 	harness.assert_equal(no_target["combat_rng"].calls, 0)
 	var full_team := _fixture("ally", "smallHeal")
 	harness.assert_false(FreeSkillEffectsScript.is_usable("smallHeal", full_team["context"], full_team["ports"], errors))
+	var missing_piece_target := _fixture("ally", "pieceAction")
+	before = BattleStateScript.snapshot(missing_piece_target["state"])
+	harness.assert_false(FreeSkillEffectsScript.is_usable("pieceAction", missing_piece_target["context"], missing_piece_target["ports"], errors))
+	harness.assert_false(_execute(missing_piece_target, "pieceAction")["ok"])
+	harness.assert_equal(missing_piece_target["state"], before)
 	var malformed := _fixture("ally", "pieceAction")
 	malformed["context"]["cost"] = 0
 	before = BattleStateScript.snapshot(malformed["state"])
@@ -283,7 +296,8 @@ func _test_commit_semantics(harness: TestHarness) -> void:
 	var result := _execute(post_fail, "pieceAction")
 	harness.assert_false(result["ok"])
 	harness.assert_true(result["error"].contains("state committed"))
-	harness.assert_equal(_unit(post_fail["state"], "ally", 2)["extra_action_charges"], 1)
+	harness.assert_equal(post_fail["buffs"].get_unit_stacks(_unit(post_fail["state"], "ally", 2), "nextRoundAction"), 1)
+	harness.assert_equal(_unit(post_fail["state"], "ally", 2)["extra_action_charges"], 0)
 	var record_fail := _fixture("ally", "smallHeal", "commit", "record_heal")
 	_set_hp(record_fail["state"], "ally", 1, 50.0)
 	result = _execute(record_fail, "smallHeal")
@@ -417,6 +431,8 @@ func _prepare(fixture: Dictionary, skill_id: String) -> void:
 			_set_hp(state, opposing, 3, 40.0)
 		"pieceAction":
 			_unit(state, side, 2)["atk"] = 25.0
+			if side == "ally":
+				fixture["context"]["target_unit_id"] = _unit(state, side, 2)["id"]
 		"pieceHealAll", "smallHeal":
 			_set_hp(state, side, 2, 40.0)
 			_set_hp(state, side, 3, 60.0)

@@ -15,6 +15,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("M5 reward skills add duplicate copies and heal never revives", func() -> void:
 		_test_reward_multiset_and_heal(harness)
 	)
+	harness.run_test("M5 normal reward groups can be skipped independently", func() -> void:
+		_test_normal_reward_groups(harness)
+	)
 	harness.run_test("M5 shops publish 3 plus 3 at chapter prices and allow duplicate skills", func() -> void:
 		_test_shop_options_and_prices(harness)
 	)
@@ -43,7 +46,7 @@ func run(harness: TestHarness) -> void:
 
 func _test_reward_scales_and_filters(harness: TestHarness) -> void:
 	var cases := {
-		"battle": {"skills": 0, "relics": 3, "currency": 15},
+		"battle": {"skills": 3, "relics": -1, "currency": 15},
 		"elite": {"skills": 2, "relics": 1, "currency": 25},
 		"boss": {"skills": 1, "relics": 2, "currency": 40},
 	}
@@ -58,16 +61,22 @@ func _test_reward_scales_and_filters(harness: TestHarness) -> void:
 		harness.assert_true(lifecycle.complete_current_battle(true, errors), "; ".join(errors))
 		harness.assert_equal(state["status"], "reward")
 		harness.assert_equal(state["currency"], before_currency + cases[node_type]["currency"])
-		var skills: Array = state["reward_options"].filter(func(option: Dictionary) -> bool:
-			return option["type"] == "freeSkill"
+		var cards: Array = state["reward_options"].filter(func(option: Dictionary) -> bool:
+			return option["type"] != "relic"
 		)
 		var relics: Array = state["reward_options"].filter(func(option: Dictionary) -> bool:
 			return option["type"] == "relic"
 		)
-		harness.assert_equal(skills.size(), cases[node_type]["skills"])
-		harness.assert_equal(relics.size(), cases[node_type]["relics"])
-		for option: Dictionary in skills:
-			harness.assert_false(option["payload_id"] == "basicDamage")
+		harness.assert_equal(cards.size(), cases[node_type]["skills"])
+		if node_type == "battle":
+			harness.assert_true(relics.size() in [0, 3])
+		else:
+			harness.assert_equal(relics.size(), cases[node_type]["relics"])
+		for option: Dictionary in cards:
+			harness.assert_true(option["type"] in ["freeSkill", "exclusiveCard"])
+			if option["type"] == "freeSkill":
+				harness.assert_false(option["payload_id"] == "basicDamage")
+				harness.assert_false(option["payload_id"] == "pieceAction")
 			harness.assert_equal(option["price"], 0)
 		for option: Dictionary in relics:
 			var definition: Variant = catalogs["relics"][option["payload_id"]]
@@ -111,13 +120,35 @@ func _test_reward_multiset_and_heal(harness: TestHarness) -> void:
 		heal_state["piece_slots"][index]["hp_ratio"] = ratios[index]
 	_choose_type(heal_lifecycle, heal_state, "battle", harness, heal_errors)
 	harness.assert_true(heal_lifecycle.complete_current_battle(true, heal_errors), "; ".join(heal_errors))
-	harness.assert_equal(heal_state["reward_options"].map(
-		func(option: Dictionary) -> String: return option["id"]
-	), ["reward:heal"])
-	harness.assert_true(heal_lifecycle.select_reward("reward:heal", heal_errors), "; ".join(heal_errors))
-	# Slots 3 and 6 are now actual empty formation positions. Healing neither
-	# revives a fallen deployed piece nor turns an empty position into a unit.
-	harness.assert_equal(_piece_ratios(heal_state), [0.0, 0.55, 0.8, 1.0, 0.85, 0.36])
+	harness.assert_equal(heal_state["reward_options"].filter(
+		func(option: Dictionary) -> bool: return option["type"] != "relic"
+	).size(), 3)
+	harness.assert_true(heal_lifecycle.skip_normal_reward_group("card", heal_errors), "; ".join(heal_errors))
+	if heal_state["status"] == "reward":
+		harness.assert_true(heal_lifecycle.skip_normal_reward_group("relic", heal_errors), "; ".join(heal_errors))
+	# Skipping both groups leaves formation health untouched, including empty and
+	# defeated positions.
+	harness.assert_equal(_piece_ratios(heal_state), ratios)
+
+
+func _test_normal_reward_groups(harness: TestHarness) -> void:
+	var fixture := _started_fixture("m5-04-normal-groups", 1, harness)
+	var state: Dictionary = fixture["state"]
+	var lifecycle: Variant = fixture["lifecycle"]
+	var errors: Array[String] = []
+	_choose_type(lifecycle, state, "battle", harness, errors)
+	harness.assert_true(lifecycle.complete_current_battle(true, errors), "; ".join(errors))
+	var cards: Array = state["reward_options"].filter(func(option: Dictionary) -> bool:
+		return option["type"] != "relic"
+	)
+	harness.assert_equal(cards.size(), 3)
+	harness.assert_true(lifecycle.skip_normal_reward_group("card", errors), "; ".join(errors))
+	if state["status"] == "reward":
+		harness.assert_true(state["reward_options"].all(func(option: Dictionary) -> bool:
+			return option["type"] == "relic"
+		))
+		harness.assert_true(lifecycle.skip_normal_reward_group("relic", errors), "; ".join(errors))
+	harness.assert_equal(state["status"], "map")
 
 
 func _test_shop_options_and_prices(harness: TestHarness) -> void:
@@ -129,18 +160,23 @@ func _test_shop_options_and_prices(harness: TestHarness) -> void:
 		var errors: Array[String] = []
 		state["free_skill_ids"] = _player_free_skill_ids(catalogs)
 		_choose_type(lifecycle, state, "shop", harness, errors)
-		var skills: Array = state["shop_options"].filter(func(option: Dictionary) -> bool:
+		var cards: Array = state["shop_options"].filter(func(option: Dictionary) -> bool:
+			return option["type"] in ["shopFreeSkill", "shopExclusiveCard"]
+		)
+		var skills: Array = cards.filter(func(option: Dictionary) -> bool:
 			return option["type"] == "shopFreeSkill"
 		)
 		var relics: Array = state["shop_options"].filter(func(option: Dictionary) -> bool:
 			return option["type"] == "shopRelic"
 		)
-		harness.assert_equal(skills.size(), 3)
+		harness.assert_equal(cards.size(), 3)
 		harness.assert_equal(relics.size(), 3)
-		for option: Dictionary in skills:
+		for option: Dictionary in cards:
 			harness.assert_equal(option["price"], 18 + chapter * 2)
-			harness.assert_true(option["payload_id"] in state["free_skill_ids"])
-			harness.assert_false(option["payload_id"] == "basicDamage")
+			if option["type"] == "shopFreeSkill":
+				harness.assert_true(option["payload_id"] in state["free_skill_ids"])
+				harness.assert_false(option["payload_id"] == "basicDamage")
+				harness.assert_false(option["payload_id"] == "pieceAction")
 		for option: Dictionary in relics:
 			harness.assert_equal(option["price"], 35 + chapter * 5)
 			harness.assert_false(option["payload_id"] in [
@@ -385,7 +421,7 @@ func _choose_type(
 
 func _player_free_skill_ids(catalogs: Dictionary) -> Array:
 	return catalogs["skills"].keys().filter(func(skill_id: Variant) -> bool:
-		return skill_id != "basicDamage"
+		return skill_id not in ["basicDamage", "pieceAction"]
 	)
 
 

@@ -142,11 +142,30 @@ static func resolve(request: Variant, ports: Variant) -> Dictionary:
 	state["fate"]["skill_sp_gain_this_round"] = 0
 	state["enemy_fate"]["skill_sp_gain_this_round"] = 0
 	var recover: float = config["round_recover"]
+	var enemy_recover: float = config["enemy_round_recover"]
+	var old_sp: float = float(state["sp"])
+	var old_enemy_sp: float = float(state["enemy_sp"])
 	state["sp"] = minf(float(state["sp_max"]), float(state["sp"]) + recover)
-	state["enemy_sp"] = minf(float(state["enemy_sp_max"]), float(state["enemy_sp"]) + recover)
+	state["enemy_sp"] = minf(float(state["enemy_sp_max"]), float(state["enemy_sp"]) + enemy_recover)
 	trace.append(_entry("finalize", null, null, "round_resources", {
 		"round": state["round"], "sp": state["sp"], "enemy_sp": state["enemy_sp"],
 	}))
+	var resource_event: Dictionary = ports.call_action("emit_combat_event", {
+		"event_id": "resourceChanged",
+		"resource": "sp",
+		"reason": "round_recovery",
+		"round": state["round"],
+		"old_sp": old_sp,
+		"new_sp": float(state["sp"]),
+		"amount": float(state["sp"]) - old_sp,
+		"old_enemy_sp": old_enemy_sp,
+		"new_enemy_sp": float(state["enemy_sp"]),
+	})
+	if not resource_event["ok"]:
+		return _failure(
+			"round resource presentation failed after resource commit: %s" % resource_event["error"],
+			state, trace,
+		)
 
 	var had_stealth: Array[Dictionary] = []
 	var all_units: Array = []
@@ -246,8 +265,9 @@ static func _preflight(request: Variant, ports: Variant) -> Dictionary:
 			var definition: Variant = catalogs["piece_classes"].get(unit["class_id"])
 			if not definition is Resource or definition.get_script() != PieceClassDefinition:
 				return CombatPortsScript.fail("round unit class_id is absent from M1 authority")
-	if buffs.definition_for("stealth", "unit", errors) == null:
-		return CombatPortsScript.fail("round stealth Buff authority invalid: %s" % errors[0])
+	for required_buff_id: String in ["stealth", "nextRoundAction"]:
+		if buffs.definition_for(required_buff_id, "unit", errors) == null:
+			return CombatPortsScript.fail("round %s Buff authority invalid: %s" % [required_buff_id, errors[0]])
 	if not FateSystemScript.preflight(state, "ally", buffs, errors):
 		return CombatPortsScript.fail("ally Fate preflight failed: %s" % errors[0])
 	if not FateSystemScript.preflight(state, "enemy", buffs, errors):
@@ -264,9 +284,13 @@ static func _preflight(request: Variant, ports: Variant) -> Dictionary:
 	var recover := _tuning_number(tuning, "roundRecover", errors)
 	if not errors.is_empty() or recover < 0.0:
 		return CombatPortsScript.fail("roundRecover must be non-negative and finite")
+	var enemy_recover := _tuning_number(tuning, "enemyRoundRecover", errors)
+	if not errors.is_empty() or enemy_recover < 0.0:
+		return CombatPortsScript.fail("enemyRoundRecover must be non-negative and finite")
 	return CombatPortsScript.ok({
 		"buffs": buffs, "tuning": tuning, "combat_rng": combat_rng,
 		"round_recover": recover,
+		"enemy_round_recover": enemy_recover,
 	})
 
 

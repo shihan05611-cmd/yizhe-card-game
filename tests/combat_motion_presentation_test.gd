@@ -164,6 +164,53 @@ func _test_damage_wave_grouping(harness: TestHarness) -> void:
 	queue.drain_for_test()
 	harness.assert_equal(started, [1, 3, 2, 4], "the next ultimate hit stays a later wave")
 
+	stream = StreamScript.new()
+	stream.begin_batch("relic-waves")
+	stream.capture_damage("damage_applied", _relic_damage_payload("relic-wave:arcConductor:1", 101))
+	stream.capture_damage("unit_damaged", _relic_damage_payload("relic-wave:arcConductor:1", 101))
+	stream.capture_damage("damage_applied", _relic_damage_payload("relic-wave:arcConductor:1", 102))
+	stream.capture_combat({
+		"event_id": "relicTriggered", "relic_id": "arcConductor",
+		"relic_name": "奥术导体", "trigger_phase": "resolved",
+		"presentation_wave_id": "relic-wave:arcConductor:1",
+		"damage_per_target": 12.0, "target_count": 2,
+		"source_effect": {
+			"source_type": "relic", "source_id": "arcConductor",
+			"source_name": "奥术导体", "source_side": "ally", "source_actor_id": 0,
+		},
+	})
+	stream.capture_damage("damage_applied", _relic_damage_payload("relic-wave:arcConductor:2", 101))
+	stream.capture_damage("damage_applied", _relic_damage_payload("relic-wave:arcConductor:2", 102))
+	queue.reset()
+	started.clear()
+	harness.assert_true(queue.enqueue(stream.all_events(), {}))
+	harness.assert_equal(started, [1, 3], "Arc Conductor presents every target from one trigger together")
+	queue.drain_for_test()
+	harness.assert_equal(started, [1, 3, 2, 4, 5, 6], "Arc Conductor completion and a later trigger retain their event order")
+	harness.assert_equal(stream.all_events()[3]["event_id"], "relicTriggered")
+	harness.assert_equal(stream.all_events()[3]["source"]["id"], "arcConductor")
+
+	stream = StreamScript.new()
+	stream.begin_batch("enemy-special-hit")
+	stream.capture_damage("damage_applied", _stream_damage_payload(true))
+	stream.capture_combat({
+		"event_id": "enemySpecialTriggered", "special_id": "devourer",
+		"kind": "sp_drain", "source_action_id": "normalAttack",
+		"actor": {"id": 101, "side": "enemy", "slot": 1},
+		"resource": "sp", "old_sp": 4.0, "new_sp": 3.0, "amount": 1.0,
+		"source_effect": {
+			"source_type": "basic_attack", "source_id": "normalAttack",
+			"source_name": "测试", "source_side": "ally", "source_actor_id": 1,
+		},
+	})
+	stream.capture_damage("unit_damaged", _stream_damage_payload(true))
+	queue.reset()
+	started.clear()
+	harness.assert_true(queue.enqueue(stream.all_events(), {}))
+	harness.assert_equal(started, [1, 2], "enemy special feedback emitted by a hit shares that hit segment")
+	queue.drain_for_test()
+	harness.assert_equal(started, [1, 2, 3])
+
 	var one := _wave_elapsed(stream.all_events(), 1.0)
 	var four := _wave_elapsed(stream.all_events(), 4.0)
 	harness.assert_true(absf(one / four - 4.0) < 0.08, "wave grouping preserves 1x/4x timing")
@@ -248,6 +295,18 @@ static func _skill_damage_payload(hit_index: int, target_id: int) -> Dictionary:
 		"effect_context": {
 			"source_type": "ultimate", "source_id": "fist", "source_name": "宁不凡",
 			"source_side": "ally", "source_actor_id": 6,
+		},
+	}
+
+
+static func _relic_damage_payload(wave_id: String, target_id: int) -> Dictionary:
+	return {
+		"target": {"id": target_id, "slot": target_id - 100, "side": "enemy", "max_hp": 100.0},
+		"amount": 12.0,
+		"metadata": {"presentation_wave_id": wave_id, "presentation_hit_index": 0},
+		"effect_context": {
+			"source_type": "relic", "source_id": "arcConductor",
+			"source_name": "奥术导体", "source_side": "ally", "source_actor_id": 0,
 		},
 	}
 

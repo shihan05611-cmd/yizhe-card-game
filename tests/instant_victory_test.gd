@@ -141,9 +141,7 @@ func _test_run_shortcut_settlement(harness: TestHarness) -> void:
 	harness.assert_equal(finished_count[0], 1)
 	harness.assert_equal(state["status"], "reward")
 	harness.assert_equal(state["piece_slots"][1]["hp_ratio"], 0.6)
-	harness.assert_equal(state["permanent_buffs"], [{
-		"id": "fistMastery", "target": {"type": "hero", "id": 6}, "stacks": 1,
-	}])
+	harness.assert_equal(state["permanent_buffs"], [])
 	var committed: Dictionary = state.duplicate(true)
 	root._unhandled_key_input(x)
 	harness.assert_equal(finished_count[0], 1)
@@ -197,7 +195,10 @@ func _fighting_run(harness: TestHarness, seed: String) -> Dictionary:
 
 static func _first_playable(cards: Array) -> Dictionary:
 	for card: Dictionary in cards:
-		if bool(card.get("playable", false)):
+		if (
+			bool(card.get("playable", false))
+			and str(card.get("targeting", {}).get("mode", "automatic")) != "required"
+		):
 			return card
 	return {}
 

@@ -112,7 +112,8 @@ func _test_drag_cancel_and_success(harness: TestHarness) -> void:
 	origin = card.global_position + card.size * 0.5
 	harness.assert_true(card.begin_drag_at(origin))
 	card.drag_to(origin + Vector2(0.0, -100.0))
-	card.end_drag_at(origin + Vector2(0.0, -100.0))
+	var release_position := origin + Vector2(0.0, -100.0)
+	card.end_drag_at(release_position)
 	harness.assert_equal(commands.size(), 1)
 	harness.assert_equal(commands[0], {
 		"type": "play_card",
@@ -120,6 +121,7 @@ func _test_drag_cancel_and_success(harness: TestHarness) -> void:
 		"expected_card_id": "card-shared",
 		"expected_source_skill_id": "smallHeal",
 		"owner_hero_id": 4,
+		"release_position": release_position,
 	})
 	harness.assert_equal(card.get_instance_id(), original_node_id, "drag must not delete or replace visual card")
 	harness.assert_equal(hand.card_count(), 1, "visual card waits for a new authoritative VM")

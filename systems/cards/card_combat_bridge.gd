@@ -16,12 +16,17 @@ const FlameFateEffectsScript = preload("res://systems/effects/hero_effects_flame
 const MarshalFistEffectsScript = preload("res://systems/effects/hero_effects_marshal_fist.gd")
 const SiegePuppetShadowEffectsScript = preload("res://systems/effects/hero_effects_siege_puppet_shadow.gd")
 const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
+const TargetingRulesScript = preload("res://systems/targeting/targeting_rules.gd")
+const PieceAttackScript = preload("res://systems/combat/piece_attack.gd")
 
 const CONFIG_KEYS := [
 	"state", "hand_runtime", "card_catalog", "registry", "ports",
 	"relic_system", "energy_coordinator",
 ]
 const FORBIDDEN_SOURCE_SKILL_IDS: Array[String] = ["basicDamage"]
+const TARGETABLE_SOURCE_SKILL_IDS: Array[String] = [
+	"executeStrike", "pieceAction", "ascend", "puppetAttunement",
+]
 
 var _state: Dictionary
 var _hand_runtime: Variant
@@ -91,6 +96,15 @@ func inspect_playability(request: Variant) -> RefCounted:
 	var authority_error := _authority_error(command, instance)
 	if not authority_error.is_empty():
 		return _failure(Result.INVALID_CARD, authority_error)
+	var definition: Variant = _card_catalog[instance.definition.id]
+	var scheduled_base_cost: int = int(definition.base_sp_cost)
+	var display_effective_cost: int = instance.effective_sp_cost()
+	var scheduled_result := _scheduled_base_cost(definition)
+	if scheduled_result["ok"]:
+		scheduled_base_cost = int(scheduled_result["value"])
+	var display_cost_result := _dynamic_effective_cost(definition, instance)
+	if display_cost_result["ok"]:
+		display_effective_cost = int(display_cost_result["value"])
 
 	var unavailable_code := ""
 	var unavailable_reason := ""
@@ -111,23 +125,22 @@ func inspect_playability(request: Variant) -> RefCounted:
 
 	var prepared: Dictionary = {}
 	if unavailable_code.is_empty():
-		var preflight: Dictionary = _preflight(command, instance)
+		var preflight: Dictionary = _preflight(command, instance, true)
 		if not preflight["ok"]:
 			unavailable_code = Result.VALIDATOR_REJECTED
 			unavailable_reason = preflight["error"]
 		else:
 			prepared = preflight["value"]
-	var definition: Variant = _card_catalog[instance.definition.id]
 	return Result.new(true, Result.OK, "", {
 		"instance_id": command.instance_id,
 		"card_id": definition.id,
 		"playable": unavailable_code.is_empty(),
 		"unavailable_code": unavailable_code,
 		"reason": unavailable_reason,
-		"base_cost": definition.base_sp_cost,
-		"effective_cost": instance.effective_sp_cost(),
+		"base_cost": int(prepared.get("base_cost", scheduled_base_cost)),
+		"effective_cost": int(prepared.get("effective_cost", display_effective_cost)),
 		"actual_cost": (
-			int(prepared.get("actual_cost", instance.effective_sp_cost()))
+			int(prepared.get("actual_cost", display_effective_cost))
 			if unavailable_code.is_empty() else null
 		),
 	})
@@ -151,7 +164,12 @@ func play(request: Variant) -> RefCounted:
 
 	var prepared: Dictionary = {}
 	var validate := func(card_snapshot: Variant) -> Dictionary:
-		var preflight := _preflight(command, card_snapshot)
+		# Empty optimistic guards identify the internal automatic-play path used by
+		# battle simulation. It may choose the canonical fallback target; guarded
+		# UI commands must carry their explicit required target.
+		var preflight := _preflight(
+			command, card_snapshot, command.expected_card_id.is_empty(),
+		)
 		if not preflight["ok"]:
 			return {
 				"ok": false, "message": preflight["error"],
@@ -182,20 +200,44 @@ func play(request: Variant) -> RefCounted:
 					"effect_call_count": 1,
 				},
 			}
+		var effect_value: Dictionary = executed["value"]
+		if prepared["definition"].source_skill_id == "executeStrike":
+			var attack: Dictionary = PieceAttackScript.consume_plan({
+				"state": _state,
+				"plan": effect_value["plan"],
+				"permanent_buffs": [],
+				"relic_system": _relic_system,
+			}, _ports)
+			if not attack["ok"]:
+				return {
+					"ok": false,
+					"message": "executeStrike attack failed after SP committed: %s" % attack["error"],
+					"committed": true,
+					"details": {
+						"phase": "effect", "actual_cost": prepared["actual_cost"],
+						"sp_before": sp_before, "sp_after": _state["sp"],
+						"effect_id": prepared["definition"].effect_id,
+						"effect_call_count": 1,
+					},
+				}
+			effect_value = attack["value"]
+			if bool(effect_value.get("primary_died", false)):
+				_state["sp"] = float(_state["sp"]) + 1.0
+			effect_value["kill_sp_gained"] = 1 if bool(effect_value.get("primary_died", false)) else 0
 		prepared["sp_before"] = sp_before
 		prepared["sp_after"] = float(_state["sp"])
-		prepared["effect_result"] = executed["value"]
+		prepared["effect_result"] = effect_value
 		return {
 			"ok": true,
 			"details": {
 				"committed": true,
 				"actual_cost": prepared["actual_cost"],
 				"effective_cost": prepared["effective_cost"],
-				"base_cost": prepared["definition"].base_sp_cost,
+				"base_cost": prepared["base_cost"],
 				"sp_before": sp_before, "sp_after": _state["sp"],
 				"effect_id": prepared["definition"].effect_id,
 				"effect_call_count": 1,
-				"effect_result": executed["value"],
+				"effect_result": effect_value,
 			},
 		}
 	var post_success := func(_card_snapshot: Variant, destination: String) -> Dictionary:
@@ -221,7 +263,11 @@ func play(request: Variant) -> RefCounted:
 	)
 
 
-func _preflight(command: Variant, instance: Variant) -> Dictionary:
+func _preflight(
+	command: Variant,
+	instance: Variant,
+	allow_default_required_target: bool = false,
+) -> Dictionary:
 	var state_errors: Array[String] = []
 	if not BattleStateScript.validate(_state, state_errors):
 		return CombatPortsScript.fail("player card state is non-canonical%s" % _error_suffix(state_errors))
@@ -233,10 +279,20 @@ func _preflight(command: Variant, instance: Variant) -> Dictionary:
 	if not authority_error.is_empty():
 		return CombatPortsScript.fail(authority_error)
 	var definition: Variant = _card_catalog[instance.definition.id]
-	if definition.card_requires_target:
-		return CombatPortsScript.fail("targeted player cards are not supported in the first version")
-	if command.target != null:
+	var card_runtime_error := _card_runtime_preflight_error(definition)
+	if not card_runtime_error.is_empty():
+		return CombatPortsScript.fail(card_runtime_error)
+	var requires_target := _card_requires_explicit_target(definition)
+	if command.target != null and definition.source_skill_id not in TARGETABLE_SOURCE_SKILL_IDS:
 		return CombatPortsScript.fail("this player card does not accept a target")
+	if requires_target and command.target == null and not allow_default_required_target:
+		return CombatPortsScript.fail("this player card requires a target")
+	var target_result := _prepare_target(
+		definition, command.target, allow_default_required_target, requires_target,
+	)
+	if not target_result["ok"]:
+		return target_result
+	var target: Variant = target_result["value"]
 	var owner: Variant = null
 	if definition.card_category == CardDefinitionScript.CATEGORY_FREE:
 		if command.owner_hero_id != null:
@@ -253,7 +309,10 @@ func _preflight(command: Variant, instance: Variant) -> Dictionary:
 	else:
 		return CombatPortsScript.fail("unknown player card category")
 
-	var effective_cost: int = instance.effective_sp_cost()
+	var cost_result := _dynamic_effective_cost(definition, instance)
+	if not cost_result["ok"]:
+		return cost_result
+	var effective_cost: int = int(cost_result["value"])
 	var actual_cost := 0
 	if definition.card_category != CardDefinitionScript.CATEGORY_ULTIMATE:
 		actual_cost = _relic_system.get_effective_skill_point_cost(
@@ -264,7 +323,7 @@ func _preflight(command: Variant, instance: Variant) -> Dictionary:
 		)
 	if float(_state["sp"]) < float(actual_cost):
 		return CombatPortsScript.fail("insufficient player SP")
-	var context_result := _build_context(definition, owner, actual_cost)
+	var context_result := _build_context(definition, owner, actual_cost, target)
 	if not context_result["ok"]:
 		return context_result
 	var context: Dictionary = context_result["value"]
@@ -277,13 +336,135 @@ func _preflight(command: Variant, instance: Variant) -> Dictionary:
 	return CombatPortsScript.ok({
 		"definition": definition,
 		"owner": owner,
+		"base_cost": int(_scheduled_base_cost(definition)["value"]),
 		"effective_cost": effective_cost,
 		"actual_cost": actual_cost,
 		"context": context,
 	})
 
 
-func _build_context(definition: Variant, owner: Variant, actual_cost: int) -> Dictionary:
+func _prepare_target(
+	definition: Variant,
+	requested_target: Variant,
+	allow_default_required_target: bool,
+	requires_target: bool,
+) -> Dictionary:
+	if requested_target == null:
+		if definition.source_skill_id == "puppetAttunement" or (requires_target and allow_default_required_target):
+			var fallback: Variant = _default_target(definition.source_skill_id)
+			return (
+				CombatPortsScript.ok(fallback)
+				if fallback != null else CombatPortsScript.fail("this player card has no valid target")
+			)
+		return CombatPortsScript.ok(null)
+	if typeof(requested_target) != TYPE_DICTIONARY:
+		return CombatPortsScript.fail("player card target must be a Dictionary")
+	var expected_keys := ["side", "unit_id", "slot"]
+	if requested_target.size() != expected_keys.size():
+		return CombatPortsScript.fail("player card target must have a canonical closed shape")
+	for key: String in expected_keys:
+		if not requested_target.has(key):
+			return CombatPortsScript.fail("player card target is missing %s" % key)
+	if requested_target["side"] not in ["ally", "enemy"]:
+		return CombatPortsScript.fail("player card target side must be ally or enemy")
+	if not _stable_id(requested_target["unit_id"]):
+		return CombatPortsScript.fail("player card target unit_id must be a stable id")
+	if typeof(requested_target["slot"]) != TYPE_INT or int(requested_target["slot"]) < 1 or int(requested_target["slot"]) > 6:
+		return CombatPortsScript.fail("player card target slot must be from 1 through 6")
+	var expected_side := "enemy" if definition.source_skill_id == "executeStrike" else "ally"
+	if requested_target["side"] != expected_side:
+		return CombatPortsScript.fail("player card target is on the wrong side")
+	var unit: Variant = _unit_by_id(expected_side, requested_target["unit_id"])
+	if unit == null or int(unit["slot"]) != int(requested_target["slot"]):
+		return CombatPortsScript.fail("player card target identity no longer matches battle state")
+	if not bool(unit["alive"]):
+		return CombatPortsScript.fail("player card target is no longer alive")
+	return CombatPortsScript.ok(unit)
+
+
+func _card_requires_explicit_target(definition: Variant) -> bool:
+	if definition.card_requires_target:
+		return true
+	if definition.source_skill_id != "ascend":
+		return false
+	for unit: Dictionary in _state["allies"]:
+		if unit["alive"] and unit["general"]:
+			return false
+	return true
+
+
+func _default_target(source_skill_id: String) -> Variant:
+	if source_skill_id == "executeStrike":
+		return TargetingRulesScript.lowest_current_hp_lockable(_state, "enemy")
+	if source_skill_id == "pieceAction":
+		return TargetingRulesScript.highest_atk_alive(_state, "ally")
+	if source_skill_id == "ascend":
+		for unit: Dictionary in _state["allies"]:
+			if unit["alive"] and not unit["is_puppet"]:
+				return unit
+	if source_skill_id == "puppetAttunement":
+		var errors: Array[String] = []
+		var buffs: Variant = _ports.service("buffs", errors)
+		if not errors.is_empty():
+			return null
+		for unit: Dictionary in _state["allies"]:
+			if unit["alive"] and unit["is_puppet"] and buffs.get_unit_enchantment_capacity(unit) == 0:
+				return unit
+	return null
+
+
+func _dynamic_effective_cost(definition: Variant, instance: Variant) -> Dictionary:
+	var scheduled_result := _scheduled_base_cost(definition)
+	if not scheduled_result["ok"]:
+		return scheduled_result
+	var modifiers: Dictionary = instance.cost_modifiers()
+	var modifier_total := (
+		int(modifiers["until_played"])
+		+ int(modifiers["until_turn"])
+		+ int(modifiers["until_combat"])
+	)
+	return CombatPortsScript.ok(maxi(
+		0, int(scheduled_result["value"]) + modifier_total,
+	))
+
+
+func _scheduled_base_cost(definition: Variant) -> Dictionary:
+	if (
+		definition.card_category != CardDefinitionScript.CATEGORY_EXCLUSIVE
+		or definition.source_skill_id != "burnEnchant"
+	):
+		return CombatPortsScript.ok(int(definition.base_sp_cost))
+	var errors: Array[String] = []
+	var buffs: Variant = _ports.service("buffs", errors)
+	if not errors.is_empty():
+		return CombatPortsScript.fail("dynamic card cost requires buffs service: %s" % errors[0])
+	var successful_casts: int = int(buffs.get_side_stacks("ally", "flameCastCount"))
+	return CombatPortsScript.ok(1 if successful_casts == 0 else (2 if successful_casts < 3 else 4))
+
+
+func _card_runtime_preflight_error(definition: Variant) -> String:
+	if definition.source_skill_id != "tacticalDraw":
+		return ""
+	var hand_state: Dictionary = _hand_runtime.snapshot()
+	var piles: Dictionary = hand_state.get("piles", {})
+	var hand_count: int = piles.get(CardDefinitionScript.PILE_HAND, []).size()
+	if hand_count > HandRuntimeScript.HAND_LIMIT - 1:
+		return "tacticalDraw requires room for both drawn cards"
+	var available: int = (
+		piles.get(CardDefinitionScript.PILE_DRAW, []).size()
+		+ piles.get(CardDefinitionScript.PILE_DISCARD, []).size()
+	)
+	if available < 2:
+		return "tacticalDraw requires at least two cards in draw/discard piles"
+	return ""
+
+
+func _build_context(
+	definition: Variant,
+	owner: Variant,
+	actual_cost: int,
+	target: Variant = null,
+) -> Dictionary:
 	var source_name := _source_name(definition)
 	if source_name.is_empty():
 		return CombatPortsScript.fail("player card source name is unavailable")
@@ -312,19 +493,25 @@ func _build_context(definition: Variant, owner: Variant, actual_cost: int) -> Di
 	if not effect_errors.is_empty():
 		return CombatPortsScript.fail("player card effect context failed: %s" % effect_errors[0])
 	if definition.card_category == CardDefinitionScript.CATEGORY_FREE:
-		return CombatPortsScript.ok({
+		var free_context := {
 			"state": _state,
 			"caster_side": "ally",
 			"caster_id": source_actor_id,
 			"caster_name": "我方",
 			"caster_base_crit_rate": 0.0,
 			"source_effect": source_effect,
-		})
-	return CombatPortsScript.ok({
+		}
+		if target != null:
+			free_context["target_unit_id"] = target["id"]
+		return CombatPortsScript.ok(free_context)
+	var hero_context := {
 		"state": _state,
 		"caster": owner,
 		"source_effect": source_effect,
-	})
+	}
+	if target != null:
+		hero_context["target_unit_id"] = target["id"]
+	return CombatPortsScript.ok(hero_context)
 
 
 func _is_usable(definition: Variant, context: Dictionary, errors: Array[String]) -> bool:
@@ -347,6 +534,12 @@ func _is_usable(definition: Variant, context: Dictionary, errors: Array[String])
 
 func _post_success(command: Variant, prepared: Dictionary, destination: String) -> Dictionary:
 	var definition: Variant = prepared["definition"]
+	var draw_result: Variant = null
+	var draw_count := int(prepared.get("effect_result", {}).get("draw_count", 0))
+	if draw_count > 0:
+		# The played card has already moved to its battle-long exhaust pile, so it
+		# cannot be drawn by its own effect after a discard reshuffle.
+		draw_result = _hand_runtime.draw_cards(draw_count)
 	var event_id := "freeSkillCast"
 	if definition.card_category == CardDefinitionScript.CATEGORY_EXCLUSIVE:
 		event_id = "exclusiveCast"
@@ -357,7 +550,7 @@ func _post_success(command: Variant, prepared: Dictionary, destination: String) 
 		"amount": prepared["actual_cost"],
 		"actual_cost": prepared["actual_cost"],
 		"effective_cost": prepared["effective_cost"],
-		"base_cost": definition.base_sp_cost,
+		"base_cost": prepared["base_cost"],
 		"card_instance_id": command.instance_id,
 		"card_id": definition.id,
 		"card_category": definition.card_category,
@@ -416,6 +609,7 @@ func _post_success(command: Variant, prepared: Dictionary, destination: String) 
 	return CombatPortsScript.ok({
 		"event_id": event_id,
 		"event": event_payload,
+		"draw": null if draw_result == null else draw_result.to_dict(),
 		"energy_amount": energy_amount,
 		"energy_changes": energy_changes,
 		"fatal": false,
@@ -461,6 +655,14 @@ func _player_hero(hero_id: Variant) -> Variant:
 	return null
 
 
+func _unit_by_id(side: String, unit_id: Variant) -> Variant:
+	var team: Array = _state["allies" if side == "ally" else "enemies"]
+	for unit: Dictionary in team:
+		if unit["id"] == unit_id:
+			return unit
+	return null
+
+
 static func _request_error(value: Variant) -> String:
 	if not _exact_object(value, RequestScript):
 		return "player card play requires exact CardPlayRequest"
@@ -472,6 +674,8 @@ static func _request_error(value: Variant) -> String:
 		return "player card expected_source_skill_id must be trimmed"
 	if value.owner_hero_id != null and not _stable_id(value.owner_hero_id):
 		return "player card owner_hero_id must be null or a stable id"
+	if value.target != null and typeof(value.target) != TYPE_DICTIONARY:
+		return "player card target must be null or a Dictionary"
 	return ""
 
 

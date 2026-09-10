@@ -24,7 +24,7 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("Flame tiers and requests use pre-cast count and eligible slots", func() -> void:
 		_test_flame_plan(harness)
 	)
-	harness.run_test("Ning momentum and permanent mastery plans preserve pre-commit semantics", func() -> void:
+	harness.run_test("Ning momentum is unbounded while post-five layers add damage only", func() -> void:
 		_test_fist_plan(harness)
 	)
 	harness.run_test("growth port preview is side-effect free and stage is canonical", func() -> void:
@@ -53,13 +53,13 @@ func _test_marshal_formulas(harness: TestHarness) -> void:
 		"atk": 0.0, "max_hp": 80.0, "block": 0.1, "crit": 0.05,
 	})
 	harness.assert_equal(MarshalGrowth.promotion_bonuses(3), {
-		"atk": 3.0, "max_hp": 80.0, "block": 0.13, "crit": 0.08,
+		"atk": 6.0, "max_hp": 80.0, "block": 0.16, "crit": 0.11,
 	})
 	harness.assert_equal(MarshalGrowth.promotion_delta(0, 1), {
 		"atk": 0.0, "max_hp": 80.0, "block": 0.1, "crit": 0.05,
 	})
 	harness.assert_equal(MarshalGrowth.promotion_delta(1, 2), {
-		"atk": 1.5, "max_hp": 0.0, "block": 0.015, "crit": 0.015,
+		"atk": 3.0, "max_hp": 0.0, "block": 0.03, "crit": 0.03,
 	})
 	var huge := MarshalGrowth.promotion_bonuses(StoreScript.MAX_SAFE_INTEGER)
 	harness.assert_equal(huge["block"], 0.95)
@@ -125,8 +125,8 @@ func _test_marshal_death_projection(harness: TestHarness) -> void:
 	harness.assert_equal(plan["before_stacks"], 0)
 	harness.assert_equal(plan["after_stacks"], 1)
 	harness.assert_equal(plan["delta"], {
-		"atk": 1.5, "max_hp": 0.0, "block": 0.015, "crit": 0.015,
-	}, "Web death growth applies at least the repeat delta")
+		"atk": 3.0, "max_hp": 0.0, "block": 0.03, "crit": 0.03,
+	}, "legacy pure projection mirrors the doubled repeat delta")
 	dead["general"] = true
 	plan = MarshalGrowth.death_growth_plan(dead, units, null, 1, {}, errors)
 	harness.assert_equal(plan, {"eligible": false, "reason": "general_died"})
@@ -201,6 +201,12 @@ func _test_fist_plan(harness: TestHarness) -> void:
 		"momentum": 4, "damage_up_rate": 0.6, "crit_rate_up": 0.16,
 		"extra_targets": 2, "target_count": 3, "ultimate_hits": 7,
 	})
+	effects = PermanentGrowth.fist_momentum_effects(8, errors)
+	harness.assert_equal(errors, [])
+	harness.assert_equal(effects, {
+		"momentum": 8, "damage_up_rate": 0.9, "crit_rate_up": 0.2,
+		"extra_targets": 2, "target_count": 3, "ultimate_hits": 8,
+	})
 	var plan := PermanentGrowth.fist_growth_plan(4, 5, 0.05, errors)
 	harness.assert_equal(errors, [])
 	harness.assert_equal(plan["mastery_damage_up_rate"], 0.25)
@@ -209,10 +215,12 @@ func _test_fist_plan(harness: TestHarness) -> void:
 	harness.assert_equal(plan["next_momentum"], 5)
 	harness.assert_equal(plan["request"], _buff("fistMastery", "hero", 6, 1))
 	plan = PermanentGrowth.fist_growth_plan(5, 6, 0.05, errors)
-	harness.assert_equal(plan["next_momentum"], 5)
+	harness.assert_equal(plan["next_momentum"], 6)
 	errors.clear()
-	harness.assert_equal(PermanentGrowth.fist_growth_plan(6, 0, 0.05, errors), {})
-	harness.assert_true(not errors.is_empty())
+	plan = PermanentGrowth.fist_growth_plan(6, 0, 0.05, errors)
+	harness.assert_equal(errors, [])
+	harness.assert_equal(plan["next_momentum"], 7)
+	harness.assert_equal(plan["momentum_effects"]["damage_up_rate"], 0.8)
 	errors.clear()
 	harness.assert_equal(PermanentGrowth.fist_growth_plan(0, StoreScript.MAX_SAFE_INTEGER, 0.05, errors), {})
 	harness.assert_true(errors.any(func(message: String) -> bool: return message.contains("maximum safe integer")))

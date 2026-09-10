@@ -48,6 +48,7 @@ const MARCH_ID := "march"
 const PURSUIT_ID := "pursuit"
 const BREAK_FORMATION_ID := "breakFormation"
 const BREAK_MARKED_ID := "breakMarked"
+const NEXT_ROUND_ACTION_ID := "nextRoundAction"
 const MAX_PURSUITS := 12
 
 
@@ -154,9 +155,13 @@ static func _commit_execute(request: Dictionary, ports: Variant, prepared: Dicti
 		return CombatPortsScript.ok(_empty_result("no_target", steps))
 
 	var hit_count := 1
+	var ready_next_round_actions := 0
+	if request["trigger_extra_action"] and attacker["side"] == "ally":
+		ready_next_round_actions = _ready_next_round_actions(buffs, attacker)
+		hit_count += ready_next_round_actions
 	if request["trigger_extra_action"] and attacker["extra_action_charges"] > 0:
 		attacker["extra_action_charges"] -= 1
-		hit_count = 2
+		hit_count += 1
 		steps.append("extra_action_consumed")
 
 	var total_dealt := 0.0
@@ -225,12 +230,32 @@ static func _commit_execute(request: Dictionary, ports: Variant, prepared: Dicti
 				hero["energy"] = minf(float(hero["max_energy"]), float(hero["energy"]) + 4.0)
 			steps.append("banner_energy")
 
+	if ready_next_round_actions > 0:
+		var consume_errors: Array[String] = []
+		var consumed: int = buffs.consume_unit(
+			attacker, NEXT_ROUND_ACTION_ID, ready_next_round_actions, consume_errors,
+		)
+		if consumed != ready_next_round_actions:
+			return _failure("next-round extra action consume failed", steps, consume_errors)
+		steps.append("next_round_actions_consumed:%d" % consumed)
+
 	return CombatPortsScript.ok({
 		"status": "resolved", "reason": "completed", "committed": not steps.is_empty(),
 		"primary_died": primary_died, "total_dealt": total_dealt,
 		"primary_target_id": target["id"], "strikes": strikes,
 		"pursuit_count": pursuit_count, "steps": steps.duplicate(),
 	})
+
+
+static func _ready_next_round_actions(buffs: Variant, attacker: Dictionary) -> int:
+	var state: Variant = buffs.get_unit_state(attacker, NEXT_ROUND_ACTION_ID)
+	if state == null:
+		return 0
+	var ready := 0
+	for remaining: Variant in state.get("layer_turns", []):
+		if int(remaining) <= 1:
+			ready += 1
+	return ready
 
 
 static func _resolve_strike(
@@ -452,7 +477,7 @@ static func _preflight_execute(request: Variant, ports: Variant) -> Dictionary:
 		return CombatPortsScript.fail("piece attack side Buffs invalid: %s" % errors[0])
 	for definition_request: Array in [
 		[STEALTH_ID, "unit"], [MARCH_ID, "unit"], [PURSUIT_ID, "unit"],
-		[BREAK_MARKED_ID, "unit"], [BREAK_FORMATION_ID, "side"],
+		[NEXT_ROUND_ACTION_ID, "unit"], [BREAK_MARKED_ID, "unit"], [BREAK_FORMATION_ID, "side"],
 	]:
 		if buffs.definition_for(definition_request[0], definition_request[1], errors) == null:
 			return CombatPortsScript.fail("piece attack Buff authority invalid: %s" % errors[0])

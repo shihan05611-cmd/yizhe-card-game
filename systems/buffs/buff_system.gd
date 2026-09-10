@@ -8,6 +8,8 @@ const SIDE_ENEMY := "enemy"
 const SCOPE_UNIT := "unit"
 const SCOPE_SIDE := "side"
 const PERSISTENCE_BATTLE := "battle"
+const KIND_ENCHANTMENT := "enchantment"
+const DEFAULT_ENCHANTMENT_CAPACITY := 2
 
 var _state: Dictionary
 var _catalog: Dictionary = {}
@@ -98,11 +100,30 @@ func apply_unit(
 		return false
 	if not bool(unit.get("alive", true)):
 		return false
+	var current_list := _list_of(unit)
+	var evicted: Array[Dictionary] = []
+	if definition.kind == KIND_ENCHANTMENT and _find_in(current_list, String(id)) == null:
+		var capacity := get_unit_enchantment_capacity(unit)
+		if capacity <= 0:
+			errors.append("unit cannot receive enchantments")
+			return false
+		while _enchantment_ids_in(current_list).size() >= capacity:
+			var evicted_id: String = _enchantment_ids_in(current_list)[0]
+			var evicted_state: Dictionary = _find_in(current_list, evicted_id)
+			_revert_enchantment(unit, _catalog[evicted_id], evicted_state)
+			current_list = _clear_list(current_list, evicted_id)
+			evicted.append({"id": evicted_id, "state": _snapshot_state(evicted_state)})
 	var before := _state_amount(_find_in(_list_of(unit), String(id)))
 	var next := _transition_apply(
-		_list_of(unit), definition, values["stacks"], values["duration"]
+		current_list, definition, values["stacks"], values["duration"]
 	)
 	_write_unit(unit, next)
+	for entry: Dictionary in evicted:
+		_emit("buff_evicted", {
+			"buff_id": entry["id"], "scope": SCOPE_UNIT, "side": unit.get("side"),
+			"target_id": unit.get("id"), "amount": _state_amount(entry["state"]),
+			"state": null, "reason": "enchantment_capacity",
+		})
 	var after := _state_amount(_find_in(next, String(id)))
 	_emit("buff_applied", {
 		"buff_id": id,
@@ -159,6 +180,9 @@ func clear_unit(unit: Variant, id: Variant, errors: Array[String] = []) -> bool:
 	var amount := _state_amount(existing)
 	if amount <= 0:
 		return false
+	var definition: Variant = _catalog[String(id)]
+	if definition.kind == KIND_ENCHANTMENT:
+		_revert_enchantment(unit, definition, existing)
 	_write_unit(unit, _clear_list(_list_of(unit), String(id)))
 	_emit("buff_cleared", {
 		"buff_id": id, "scope": SCOPE_UNIT, "side": unit.get("side"),
@@ -366,6 +390,10 @@ func reset_unit(unit: Variant, errors: Array[String] = []) -> bool:
 	errors.clear()
 	if not _require_valid(errors) or not _validate_unit_holder_internal(unit, errors):
 		return false
+	for buff: Dictionary in _list_of(unit):
+		var definition: Variant = _catalog[buff["id"]]
+		if definition.kind == KIND_ENCHANTMENT:
+			_revert_enchantment(unit, definition, buff)
 	_write_unit(unit, [])
 	return true
 
@@ -395,6 +423,52 @@ func get_unit_turns(unit: Variant, id: String) -> int:
 
 func has_unit(unit: Variant, id: String) -> bool:
 	return has_buff(unit, id)
+
+
+func get_unit_enchantment_capacity(unit: Variant) -> int:
+	if typeof(unit) != TYPE_DICTIONARY:
+		return 0
+	var explicit: Variant = unit.get("enchantment_capacity")
+	if _is_non_negative_integer(explicit):
+		return int(explicit)
+	return 0 if bool(unit.get("is_puppet", false)) else DEFAULT_ENCHANTMENT_CAPACITY
+
+
+func get_unit_enchantment_ids(unit: Variant) -> Array[String]:
+	if typeof(unit) != TYPE_DICTIONARY or typeof(unit.get("buffs")) != TYPE_ARRAY:
+		return []
+	return _enchantment_ids_in(unit["buffs"])
+
+
+func set_unit_enchantment_capacity(
+	unit: Variant,
+	capacity: Variant,
+	errors: Array[String] = [],
+) -> bool:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_unit_holder_internal(unit, errors):
+		return false
+	if not _is_non_negative_integer(capacity):
+		errors.append("enchantment capacity must be a non-negative integer")
+		return false
+	var next_capacity := int(capacity)
+	var next := _list_of(unit)
+	var evicted: Array[Dictionary] = []
+	while _enchantment_ids_in(next).size() > next_capacity:
+		var evicted_id: String = _enchantment_ids_in(next)[0]
+		var evicted_state: Dictionary = _find_in(next, evicted_id)
+		_revert_enchantment(unit, _catalog[evicted_id], evicted_state)
+		next = _clear_list(next, evicted_id)
+		evicted.append({"id": evicted_id, "state": _snapshot_state(evicted_state)})
+	unit["enchantment_capacity"] = next_capacity
+	_write_unit(unit, next)
+	for entry: Dictionary in evicted:
+		_emit("buff_evicted", {
+			"buff_id": entry["id"], "scope": SCOPE_UNIT, "side": unit.get("side"),
+			"target_id": unit.get("id"), "amount": _state_amount(entry["state"]),
+			"state": null, "reason": "enchantment_capacity",
+		})
+	return true
 
 
 func get_side_state(side: String, id: String) -> Variant:
@@ -500,9 +574,46 @@ func _transition_apply(
 		else:
 			turns = maxi(int(current["turns"]), maxi(0, actual_duration))
 		next_state = _make_state(definition.id, stacks_after, turns, [])
-	var next := _clear_list(list, definition.id)
-	next.append(next_state)
+	var next: Array = []
+	var replaced := false
+	for item: Dictionary in list:
+		if item["id"] == definition.id:
+			next.append(next_state)
+			replaced = true
+		else:
+			next.append(_snapshot_state(item))
+	if not replaced:
+		next.append(next_state)
 	return next
+
+
+func _enchantment_ids_in(list: Array) -> Array[String]:
+	var result: Array[String] = []
+	for buff: Dictionary in list:
+		var definition: Variant = _catalog.get(buff.get("id"))
+		if definition != null and definition.kind == KIND_ENCHANTMENT:
+			result.append(buff["id"])
+	return result
+
+
+func _revert_enchantment(unit: Dictionary, definition: Variant, state: Dictionary) -> void:
+	var revert: Variant = definition.eviction_revert
+	if typeof(revert) != TYPE_DICTIONARY or revert.is_empty():
+		return
+	var stacks := maxi(0, _state_amount(state))
+	var first: Dictionary = revert.get("first", {})
+	var repeated: Dictionary = revert.get("repeat", {})
+	for field in ["atk", "max_hp", "base_block_rate", "crit_rate"]:
+		if not unit.has(field):
+			continue
+		var total := float(first.get(field, 0.0)) if stacks > 0 else 0.0
+		total += float(repeated.get(field, 0.0)) * float(maxi(0, stacks - 1))
+		unit[field] = maxf(0.0, float(unit[field]) - total)
+	if unit.has("hp") and unit.has("max_hp"):
+		unit["hp"] = minf(float(unit["hp"]), float(unit["max_hp"]))
+	var flag: Variant = revert.get("flag")
+	if typeof(flag) == TYPE_STRING and unit.has(flag):
+		unit[flag] = false
 
 
 func _consume(list: Array, id: String, stacks: Variant, errors: Array[String]) -> Dictionary:
@@ -545,6 +656,21 @@ func _decay_list(list: Array, scope: String, owner: Dictionary) -> Dictionary:
 		var definition: Variant = _catalog[buff["id"]]
 		if not definition.decays_at_round_end:
 			next.append(_snapshot_state(buff))
+			continue
+		if definition.uses_layer_durations:
+			var layer_turns: Array = []
+			for layer: Variant in buff["layer_turns"]:
+				var remaining := maxi(0, int(layer) - 1)
+				if remaining > 0:
+					layer_turns.append(remaining)
+			var expired_layers: int = buff["layer_turns"].size() - layer_turns.size()
+			if not layer_turns.is_empty():
+				next.append(_make_state(buff["id"], layer_turns.size(), layer_turns.max(), layer_turns))
+			if expired_layers > 0:
+				expired.append({
+					"scope": scope, "id": buff["id"], "side": owner["side"],
+					"target_id": owner["target_id"], "amount": expired_layers,
+				})
 			continue
 		var turns := maxi(0, int(buff["turns"]) - 1)
 		if turns > 0:

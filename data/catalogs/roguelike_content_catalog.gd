@@ -15,7 +15,11 @@ const KIND_SHENTONG := "shentong"
 
 const NODE_TYPES := ["battle", "elite", "boss", "forge", "shop", "event"]
 const REQUIRED_CHAPTER_IDS := [1, 2, 3]
-const DEFAULT_ENCOUNTER_ORDER := ["normal", "elite_core", "boss_core"]
+const DEFAULT_ENCOUNTER_ORDER := [
+	"boss_devourer", "boss_echo", "elite_devourer", "elite_echo",
+	"normal_ambush", "normal_crossfire", "normal_phalanx", "normal_pressure",
+	"normal_siege", "normal_vanguard", "normal", "elite_core", "boss_core",
+]
 const REQUIRED_SHENTONG_IDS := ["charge", "assault", "sacrifice"]
 
 
@@ -201,7 +205,7 @@ static func _validate_encounter(
 			errors.append("%s must be a dictionary" % slot_path)
 			continue
 		_validate_exact_keys(slot, [
-			"unitId", "pieceClassId", "specialId", "className", "hpScale", "atkScale", "empty",
+			"unitId", "pieceClassId", "specialId", "className", "hpScale", "atkScale", "empty", "occupiesSlots",
 		], slot_path, errors)
 		var unit_id: Variant = slot.get("unitId")
 		if typeof(unit_id) != TYPE_INT or unit_id < 1 or unit_id > 6:
@@ -226,6 +230,28 @@ static func _validate_encounter(
 		_validate_positive_scale(slot.get("atkScale"), "%s atkScale" % slot_path, errors)
 		if typeof(slot.get("empty")) != TYPE_BOOL:
 			errors.append("%s empty must be a bool" % slot_path)
+		var occupies_slots: Variant = slot.get("occupiesSlots", [])
+		if typeof(occupies_slots) != TYPE_ARRAY:
+			errors.append("%s occupiesSlots must be an array" % slot_path)
+		elif not occupies_slots.is_empty():
+			if special_id == null:
+				errors.append("%s occupiesSlots requires a specialId" % slot_path)
+			elif typeof(special_id) != TYPE_STRING or not references["enemy_specials"].has(special_id):
+				pass
+			elif occupies_slots[0] != unit_id or occupies_slots.size() != int(references["enemy_specials"][special_id].get("gridCells", 0)):
+				errors.append("%s occupiesSlots must begin at unitId and match special gridCells" % slot_path)
+			if occupies_slots != range(unit_id, unit_id + occupies_slots.size()) or (unit_id - 1) / 3 != (unit_id + occupies_slots.size() - 2) / 3:
+				errors.append("%s occupiesSlots must be consecutive slots in one board column" % slot_path)
+			for occupied_id: Variant in occupies_slots:
+				if typeof(occupied_id) != TYPE_INT or occupied_id < 1 or occupied_id > 6:
+					errors.append("%s occupiesSlots must contain slot ids 1 through 6" % slot_path)
+	for slot: Dictionary in slots:
+		for occupied_id: Variant in slot.get("occupiesSlots", []):
+			if occupied_id == slot.get("unitId"):
+				continue
+			var covered: Array = slots.filter(func(candidate: Dictionary) -> bool: return candidate.get("unitId") == occupied_id)
+			if covered.size() != 1 or not covered[0].get("empty", false):
+				errors.append("%s occupied slot %s must be authored as empty" % [path, str(occupied_id)])
 	encounters[definition.id] = definition
 
 
@@ -338,7 +364,7 @@ static func _snapshot_reference_entry(
 		"piece_classes":
 			fields = [["name", "", TYPE_STRING], ["blockBonus", 0.0, TYPE_FLOAT], ["critBonus", 0.0, TYPE_FLOAT]]
 		"enemy_specials":
-			fields = [["name", "", TYPE_STRING], ["pieceClassId", null, TYPE_NIL], ["hpScale", 1.0, TYPE_FLOAT], ["atkScale", 1.0, TYPE_FLOAT]]
+			fields = [["name", "", TYPE_STRING], ["gridCells", 1, TYPE_INT], ["pieceClassId", null, TYPE_NIL], ["hpScale", 1.0, TYPE_FLOAT], ["atkScale", 1.0, TYPE_FLOAT]]
 	var output := {"id": source.get("id")}
 	for field_spec in fields:
 		var field_name: String = field_spec[0]
@@ -349,6 +375,8 @@ static func _snapshot_reference_entry(
 			errors.append("roguelike reference %s %s must be a string" % [catalog_name, field_name])
 		elif expected_type == TYPE_FLOAT and not Validation.finite_number(field_value, "roguelike reference %s %s" % [catalog_name, field_name], errors):
 			pass
+		elif expected_type == TYPE_INT and (typeof(field_value) != TYPE_INT or field_value < 1):
+			errors.append("roguelike reference %s %s must be a positive integer" % [catalog_name, field_name])
 		elif expected_type == TYPE_NIL and field_value != null and typeof(field_value) != TYPE_STRING:
 			errors.append("roguelike reference %s %s must be a string or null" % [catalog_name, field_name])
 		output[field_name] = field_value
@@ -468,10 +496,10 @@ static func _chapter(
 		"rows": 3,
 		"columns": 10,
 		"columnRules": column_rules,
-		"battleEncounterIds": ["normal"],
-		"eliteEncounterIds": ["elite_core"],
-		"bossEncounterId": "boss_core",
-		"battleReward": {"freeSkillCount": 0, "relicCount": 3, "currency": 15},
+		"battleEncounterIds": ["normal_vanguard", "normal_crossfire"] if chapter_id == 1 else (["normal_ambush", "normal_siege"] if chapter_id == 2 else ["normal_pressure", "normal_phalanx"]),
+		"eliteEncounterIds": ["elite_devourer"] if chapter_id == 1 else (["elite_echo"] if chapter_id == 2 else ["elite_devourer", "elite_echo"]),
+		"bossEncounterId": "boss_devourer" if chapter_id == 1 else ("boss_echo" if chapter_id == 2 else "boss_devourer"),
+		"battleReward": {"freeSkillCount": 3, "relicCount": 0, "currency": 15},
 		"eliteReward": {"freeSkillCount": 2, "relicCount": 1, "currency": 25},
 		"bossReward": {"freeSkillCount": 1, "relicCount": 2, "currency": 40},
 	})
@@ -482,24 +510,33 @@ static func _slot(
 	display_class_name: String,
 	hp_scale: float,
 	empty: bool,
+	piece_class_id: Variant = null,
+	special_id: Variant = null,
+	occupies_slots: Array = [],
 ) -> Dictionary:
 	return {
 		"unitId": unit_id,
-		"pieceClassId": null,
-		"specialId": null,
+		"pieceClassId": piece_class_id,
+		"specialId": special_id,
 		"className": display_class_name,
 		"hpScale": hp_scale,
 		"atkScale": 1.0,
 		"empty": empty,
+		"occupiesSlots": occupies_slots,
 	}
 
 
 static func _source_definitions() -> Array:
-	var elite_slots: Array = []
-	var boss_slots: Array = []
-	for index in range(6):
-		elite_slots.append(_slot(index + 1, "肉鸽精英" if index < 3 else "空位", 1.6 if index < 3 else 1.0, index >= 3))
-		boss_slots.append(_slot(index + 1, "肉鸽Boss" if index == 0 else "空位", 5.0 if index == 0 else 1.0, index != 0))
+	var normal_vanguard := [_slot(1, "敌方甲卒", 1.0, false, "shield"), _slot(2, "敌方死士", 1.0, false, "assassin"), _slot(3, "敌方甲卒", 1.0, false, "shield"), _slot(4, "空位", 1.0, true), _slot(5, "敌方机弩", 1.0, false, "crossbow"), _slot(6, "敌方旗兵", 1.0, false, "banner")]
+	var normal_crossfire := [_slot(1, "敌方甲卒", 1.1, false, "shield"), _slot(2, "空位", 1.0, true), _slot(3, "敌方死士", 1.0, false, "assassin"), _slot(4, "敌方机弩", 1.0, false, "crossbow"), _slot(5, "敌方机弩", 0.9, false, "crossbow"), _slot(6, "敌方旗兵", 1.0, false, "banner")]
+	var normal_ambush := [_slot(1, "敌方死士", 1.1, false, "assassin"), _slot(2, "敌方甲卒", 1.2, false, "shield"), _slot(3, "空位", 1.0, true), _slot(4, "敌方死士", 1.0, false, "assassin"), _slot(5, "敌方机弩", 1.0, false, "crossbow"), _slot(6, "敌方旗兵", 1.0, false, "banner")]
+	var normal_siege := [_slot(1, "敌方甲卒", 1.4, false, "shield"), _slot(2, "敌方甲卒", 1.2, false, "shield"), _slot(3, "敌方甲卒", 1.0, false, "shield"), _slot(4, "空位", 1.0, true), _slot(5, "敌方机弩", 1.2, false, "crossbow"), _slot(6, "敌方机弩", 1.0, false, "crossbow")]
+	var normal_pressure := [_slot(1, "敌方死士", 1.2, false, "assassin"), _slot(2, "敌方甲卒", 1.3, false, "shield"), _slot(3, "敌方死士", 1.1, false, "assassin"), _slot(4, "敌方机弩", 1.1, false, "crossbow"), _slot(5, "敌方旗兵", 1.0, false, "banner"), _slot(6, "空位", 1.0, true)]
+	var normal_phalanx := [_slot(1, "敌方甲卒", 1.5, false, "shield"), _slot(2, "敌方甲卒", 1.4, false, "shield"), _slot(3, "敌方甲卒", 1.2, false, "shield"), _slot(4, "敌方机弩", 1.2, false, "crossbow"), _slot(5, "敌方旗兵", 1.1, false, "banner"), _slot(6, "敌方机弩", 1.0, false, "crossbow")]
+	var elite_devourer := [_slot(1, "噬元兽", 1.0, false, null, "devourer", [1, 2]), _slot(2, "噬元兽躯体", 1.0, true), _slot(3, "敌方甲卒", 1.3, false, "shield"), _slot(4, "敌方机弩", 1.2, false, "crossbow"), _slot(5, "空位", 1.0, true), _slot(6, "敌方旗兵", 1.0, false, "banner")]
+	var elite_echo := [_slot(1, "敌方甲卒", 1.4, false, "shield"), _slot(2, "敌方死士", 1.2, false, "assassin"), _slot(3, "空位", 1.0, true), _slot(4, "回响", 1.0, false, null, "echo", [4, 5, 6]), _slot(5, "回响躯体", 1.0, true), _slot(6, "回响躯体", 1.0, true)]
+	var boss_devourer := [_slot(1, "噬元兽", 1.7, false, null, "devourer", [1, 2]), _slot(2, "噬元兽躯体", 1.0, true), _slot(3, "敌方甲卒", 1.6, false, "shield"), _slot(4, "敌方死士", 1.4, false, "assassin"), _slot(5, "敌方机弩", 1.4, false, "crossbow"), _slot(6, "敌方旗兵", 1.3, false, "banner")]
+	var boss_echo := [_slot(1, "敌方甲卒", 1.8, false, "shield"), _slot(2, "敌方死士", 1.6, false, "assassin"), _slot(3, "敌方机弩", 1.5, false, "crossbow"), _slot(4, "回响", 1.7, false, null, "echo", [4, 5, 6]), _slot(5, "回响躯体", 1.0, true), _slot(6, "回响躯体", 1.0, true)]
 	return [
 		_chapter(1, [
 			["battle", "battle", "battle"], ["battle", "shop", "battle"],
@@ -522,14 +559,29 @@ static func _source_definitions() -> Array:
 			["shop", "elite", "forge"], ["battle", "battle", "event"],
 			["shop", "battle", "battle"], ["boss", "boss", "boss"],
 		]),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_vanguard", {"id": "normal_vanguard", "name": "前卫小队", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_vanguard}),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_crossfire", {"id": "normal_crossfire", "name": "交叉火力", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_crossfire}),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_ambush", {"id": "normal_ambush", "name": "伏击小队", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_ambush}),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_siege", {"id": "normal_siege", "name": "攻城编队", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_siege}),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_pressure", {"id": "normal_pressure", "name": "压迫小队", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_pressure}),
+		ContentDefinition.new(KIND_ENCOUNTER, "normal_phalanx", {"id": "normal_phalanx", "name": "方阵推进", "hpScale": 1.0, "atkScale": 1.0, "slots": normal_phalanx}),
+		ContentDefinition.new(KIND_ENCOUNTER, "elite_devourer", {"id": "elite_devourer", "name": "噬元兽精英", "hpScale": 1.0, "atkScale": 1.0, "slots": elite_devourer}),
+		ContentDefinition.new(KIND_ENCOUNTER, "elite_echo", {"id": "elite_echo", "name": "回响精英", "hpScale": 1.0, "atkScale": 1.0, "slots": elite_echo}),
+		ContentDefinition.new(KIND_ENCOUNTER, "boss_devourer", {"id": "boss_devourer", "name": "噬元兽首领", "hpScale": 1.0, "atkScale": 1.0, "slots": boss_devourer}),
+		ContentDefinition.new(KIND_ENCOUNTER, "boss_echo", {"id": "boss_echo", "name": "回响首领", "hpScale": 1.0, "atkScale": 1.0, "slots": boss_echo}),
+		# These IDs remain resolvable only for pre-migration Run snapshots.
+		# Fresh chapter encounter lists above never include them.
 		ContentDefinition.new(KIND_ENCOUNTER, "normal", {
-			"id": "normal", "name": "普通战斗", "hpScale": 1.0, "atkScale": 1.0, "slots": [],
+			"id": "normal", "name": "旧版普通战斗", "hpScale": 1.0, "atkScale": 1.0,
+			"slots": [_slot(1, "旧版敌兵", 1.0, false), _slot(2, "旧版敌兵", 1.0, false), _slot(3, "旧版敌兵", 1.0, false), _slot(4, "旧版敌兵", 1.0, false), _slot(5, "旧版敌兵", 1.0, false), _slot(6, "旧版敌兵", 1.0, false)],
 		}),
 		ContentDefinition.new(KIND_ENCOUNTER, "elite_core", {
-			"id": "elite_core", "name": "精英核心", "hpScale": 1.0, "atkScale": 1.0, "slots": elite_slots,
+			"id": "elite_core", "name": "旧版精英核心", "hpScale": 1.0, "atkScale": 1.0,
+			"slots": [_slot(1, "肉鸽精英", 1.6, false), _slot(2, "肉鸽精英", 1.6, false), _slot(3, "肉鸽精英", 1.6, false), _slot(4, "空位", 1.0, true), _slot(5, "空位", 1.0, true), _slot(6, "空位", 1.0, true)],
 		}),
 		ContentDefinition.new(KIND_ENCOUNTER, "boss_core", {
-			"id": "boss_core", "name": "Boss", "hpScale": 1.0, "atkScale": 1.0, "slots": boss_slots,
+			"id": "boss_core", "name": "旧版首领", "hpScale": 1.0, "atkScale": 1.0,
+			"slots": [_slot(1, "肉鸽Boss", 5.0, false), _slot(2, "空位", 1.0, true), _slot(3, "空位", 1.0, true), _slot(4, "空位", 1.0, true), _slot(5, "空位", 1.0, true), _slot(6, "空位", 1.0, true)],
 		}),
 		ContentDefinition.new(KIND_SHENTONG, "charge", {
 			"id": "charge", "name": "蓄势",

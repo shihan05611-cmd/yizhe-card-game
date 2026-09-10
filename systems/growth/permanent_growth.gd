@@ -60,17 +60,19 @@ static func fist_mastery_ultimate_bonus_hits(
 
 static func fist_momentum_effects(momentum: Variant, errors: Array[String] = []) -> Dictionary:
 	errors.clear()
-	if typeof(momentum) != TYPE_INT or momentum < 0 or momentum > 5:
-		errors.append("fist momentum must be an integer from 0 through 5")
+	if typeof(momentum) != TYPE_INT or momentum < 0:
+		errors.append("fist momentum must be a non-negative integer")
 		return {}
-	var extra_targets := 2 if momentum >= 4 else (1 if momentum >= 2 else 0)
+	var core_momentum := mini(5, momentum)
+	var overflow := maxi(0, momentum - 5)
+	var extra_targets := 2 if core_momentum >= 4 else (1 if core_momentum >= 2 else 0)
 	return {
 		"momentum": momentum,
-		"damage_up_rate": float(momentum) * 0.15,
-		"crit_rate_up": float(momentum) * 0.04,
+		"damage_up_rate": float(core_momentum) * 0.15 + float(overflow) * 0.05,
+		"crit_rate_up": float(core_momentum) * 0.04,
 		"extra_targets": extra_targets,
 		"target_count": 1 + extra_targets,
-		"ultimate_hits": 3 + momentum,
+		"ultimate_hits": 3 + core_momentum,
 	}
 
 
@@ -181,7 +183,7 @@ static func fist_growth_plan(
 		"mastery_damage_up_rate": mastery_rate,
 		"mastery_before_stacks": count,
 		"mastery_after_stacks": count + 1,
-		"next_momentum": mini(5, momentum + 1),
+		"next_momentum": momentum + 1,
 		"request": {
 			"id": FIST_MASTERY_ID,
 			"target": {"type": "hero", "id": FIST_HERO_ID},

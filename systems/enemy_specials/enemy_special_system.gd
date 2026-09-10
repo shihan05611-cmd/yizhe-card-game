@@ -125,7 +125,11 @@ func initialize_unit(
 	return true
 
 
-func devour_skill_point(self_unit: Variant, errors: Array[String] = []) -> bool:
+func devour_skill_point(
+	self_unit: Variant,
+	errors: Array[String] = [],
+	source_context: Dictionary = {},
+) -> bool:
 	errors.clear()
 	if not _valid:
 		errors.append("enemy special system config is invalid")
@@ -138,15 +142,21 @@ func devour_skill_point(self_unit: Variant, errors: Array[String] = []) -> bool:
 		errors.append("get_skill_points must return a non-negative finite number")
 		return false
 	if float(skill_points) > 0.0:
-		var set_result: Variant = _set_skill_points.call(float(skill_points) - 1.0)
+		var old_sp: float = float(skill_points)
+		var new_sp: float = maxf(0.0, old_sp - 1.0)
+		var set_result: Variant = _set_skill_points.call(new_sp)
 		if _failed_result(set_result, "set_skill_points", errors):
 			return false
 		_notify_trigger({
 			"special_id": DEVOURER_ID,
 			"kind": "sp_drain",
-			"actor": self_unit,
-			"amount": 1,
-			"target": null,
+			"actor": _actor_snapshot(self_unit),
+			"source_action_id": _source_action_id(source_context),
+			"source_effect": _source_effect(source_context),
+			"resource": "sp",
+			"old_sp": old_sp,
+			"new_sp": new_sp,
+			"amount": old_sp - new_sp,
 		})
 		_log.call("%s吞噬1点我方技能点。" % str(self_unit.get("name", "噬元兽")), "bad")
 		return true
@@ -167,15 +177,26 @@ func devour_skill_point(self_unit: Variant, errors: Array[String] = []) -> bool:
 	if typeof(hero) != TYPE_DICTIONARY or not _contains_same_unit(heroes, hero):
 		errors.append("injected RNG returned a hero outside the surviving candidates")
 		return false
+	var old_energy: float = float(hero.get("energy", 0.0))
 	var gain_result: Variant = _gain_hero_energy.call(hero, -ENERGY_DRAIN)
 	if _failed_result(gain_result, "gain_hero_energy", errors):
 		return false
+	var new_energy: float = float(hero.get("energy", old_energy))
 	_notify_trigger({
 		"special_id": DEVOURER_ID,
 		"kind": "energy_drain",
-		"actor": self_unit,
-		"amount": ENERGY_DRAIN,
-		"target": hero,
+		"actor": _actor_snapshot(self_unit),
+		"source_action_id": _source_action_id(source_context),
+		"source_effect": _source_effect(source_context),
+		"resource": "hero_energy",
+		"old_sp": 0.0,
+		"new_sp": 0.0,
+		"amount": maxf(0.0, old_energy - new_energy),
+		"target": {
+			"hero_id": hero.get("id", 0),
+			"old_energy": old_energy,
+			"new_energy": new_energy,
+		},
 	})
 	_log.call("%s吞噬%s10点能量。" % [str(self_unit.get("name", "噬元兽")), str(hero.get("name", hero.get("id", "")))], "bad")
 	return true
@@ -248,9 +269,9 @@ func _condition_echo(context: Dictionary, subject: Variant, _params: Dictionary)
 	return source_type != "delayed_damage"
 
 
-func _effect_devourer(_context: Dictionary, subject: Variant, _params: Dictionary) -> Dictionary:
+func _effect_devourer(context: Dictionary, subject: Variant, _params: Dictionary) -> Dictionary:
 	var errors: Array[String] = []
-	var triggered: bool = devour_skill_point(subject, errors)
+	var triggered: bool = devour_skill_point(subject, errors, context)
 	if not errors.is_empty():
 		return {"ok": false, "error": errors[0]}
 	return {"ok": true, "triggered": triggered}
@@ -284,6 +305,26 @@ func _is_current_enemy(candidate: Variant) -> bool:
 
 func _notify_trigger(payload: Dictionary) -> void:
 	_on_triggered.call(payload.duplicate(true))
+
+
+static func _actor_snapshot(unit: Dictionary) -> Dictionary:
+	return {
+		"id": unit.get("id", 0),
+		"side": str(unit.get("side", "unknown")),
+		"slot": unit.get("slot"),
+	}
+
+
+static func _source_effect(context: Dictionary) -> Dictionary:
+	var raw: Variant = context.get("source_effect", context.get("effect_context", {}))
+	return raw.duplicate(true) if typeof(raw) == TYPE_DICTIONARY else {}
+
+
+static func _source_action_id(context: Dictionary) -> String:
+	var explicit: String = str(context.get("source_action_id", ""))
+	if not explicit.is_empty():
+		return explicit
+	return str(_source_effect(context).get("source_id", ""))
 
 
 static func _same_unit(left: Variant, right: Variant) -> bool:

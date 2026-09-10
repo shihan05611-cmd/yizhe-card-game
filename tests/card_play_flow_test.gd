@@ -78,7 +78,7 @@ func _test_free_card_actual_costs(harness: TestHarness) -> void:
 		reduced["metrics"]["content_events"].map(func(event: Dictionary) -> String:
 			return event["event_id"]
 	),
-		["skillPointSpent", "freeSkillCast"],
+		["pieceAttackHit", "skillPointSpent", "freeSkillCast"],
 	)
 	_assert_deployed_energies(harness, reduced["state"], [10.0, 10.0, 10.0, 10.0, 0.0])
 

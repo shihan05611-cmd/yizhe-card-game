@@ -41,7 +41,7 @@ func _test_start_and_choose(harness: TestHarness) -> void:
 	harness.assert_equal(state["initial_hero_choice_ids"].size(), 3)
 	harness.assert_equal(_unique(state["initial_hero_choice_ids"]).size(), 3)
 	harness.assert_false(state["initial_hero_choice_ids"].has(2), "fate must not be a random choice")
-	harness.assert_true(_contains_any(state["initial_hero_choice_ids"], [3, 5, 6]))
+	harness.assert_true(state["initial_hero_choice_ids"].all(func(hero_id: Variant) -> bool: return hero_id != 2))
 	harness.assert_false(state.has("selected_shentong_id"))
 
 	var chosen: int = state["initial_hero_choice_ids"][0]
@@ -51,9 +51,14 @@ func _test_start_and_choose(harness: TestHarness) -> void:
 	harness.assert_equal(state["hero_deployment_slots"], {str(chosen): 1})
 	harness.assert_equal(state["front_hero_ids"], [chosen])
 	harness.assert_equal(state["back_hero_ids"], [])
-	harness.assert_equal(state["free_skill_ids"].size(), 2)
-	harness.assert_equal(_unique(state["free_skill_ids"]).size(), 2)
-	harness.assert_equal(_sorted_strings(state["free_skill_ids"]), ["markBurn", "smallHeal"])
+	harness.assert_equal(state["free_skill_ids"].size(), 4)
+	harness.assert_equal(state["free_skill_ids"].count("pieceAction"), 2)
+	var random_initial_skills: Array = state["free_skill_ids"].filter(func(skill_id: Variant) -> bool:
+		return skill_id != "pieceAction"
+	)
+	harness.assert_equal(random_initial_skills.size(), 2)
+	harness.assert_equal(_unique(random_initial_skills).size(), 2)
+	harness.assert_equal(_sorted_strings(random_initial_skills), ["markBurn", "smallHeal"])
 	harness.assert_false(state.has("equipped_free_skill_ids"))
 	harness.assert_true(lifecycle.validate(errors), "; ".join(errors))
 
@@ -179,6 +184,7 @@ func _test_deck_rebuild(harness: TestHarness) -> void:
 	if result["ok"]:
 		harness.assert_equal(result["value"]["deployed_hero_ids"].size(), 2)
 		harness.assert_equal(result["value"]["card_ids"].count("free:smallHeal"), 2)
+		harness.assert_equal(result["value"]["card_ids"].count("free:pieceAction"), 2)
 		var exclusive_id: String = catalogs["characters"]["players"][active_recruit_id].exclusive_skill_id
 		harness.assert_true(result["value"]["card_ids"].has("exclusive:%s" % exclusive_id))
 

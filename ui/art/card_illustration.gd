@@ -10,6 +10,7 @@ const GLYPHS := {
 	"burn01": "flame", "burnEnchant": "flame", "counterAura": "shield",
 	"fist": "fist", "shadow": "shadow", "ascend": "banner",
 	"siege": "blade", "puppet": "puppet", "fate": "fate",
+	"spSurge": "surge", "tacticalDraw": "draw", "puppetAttunement": "attunement",
 }
 var _glyph := "neutral"
 var _category := "free"
@@ -49,6 +50,30 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO,30.5,Color(0.66,0.48,0.20,0.48),false,0.8,true)
 	_stroke([Vector2(0,-32),Vector2(32,0),Vector2(0,32),Vector2(-32,0)], Color(0.40,0.48,0.33,0.14), 0.65, true)
 	match _glyph:
+		"surge":
+			draw_arc(Vector2.ZERO, 22, -2.5, 1.8, 32, ink, 1.6, true)
+			draw_arc(Vector2.ZERO, 14, 0.5, 4.9, 26, ink, 1.3, true)
+			_stroke([Vector2(-11,14),Vector2(-5,23),Vector2(3,17)],ink,1.6)
+			_stroke([Vector2(4,-20),Vector2(3,-12),Vector2(11,-12)],ink,1.4)
+			_stroke([Vector2(0,-7),Vector2(5,0),Vector2(0,7),Vector2(-5,0)],ink,1.3,true)
+		"draw":
+			_stroke([Vector2(-21,-15),Vector2(-5,-22),Vector2(4,-3),Vector2(-12,4)],ink,1.0,true)
+			_stroke([Vector2(-10,-19),Vector2(9,-19),Vector2(9,7),Vector2(-10,7)],ink,1.3,true)
+			_stroke([Vector2(2,-15),Vector2(21,-9),Vector2(13,16),Vector2(-6,10)],ink,1.6,true)
+			_stroke([Vector2(3,0),Vector2(8,-5),Vector2(13,3),Vector2(7,7)],ink,1.0,true)
+			_stroke([Vector2(-19,15),Vector2(-12,23),Vector2(3,23)],ink,1.2)
+			_stroke([Vector2(-2,19),Vector2(3,23),Vector2(-2,27)],ink,1.2)
+		"attunement":
+			draw_circle(Vector2(0,-16),5,ink,false,1.4,true)
+			_stroke([Vector2(-15,-3),Vector2(0,-7),Vector2(15,-3)],ink,1.4)
+			_stroke([Vector2(-15,-3),Vector2(-19,11)],ink,1.3)
+			_stroke([Vector2(15,-3),Vector2(19,11)],ink,1.3)
+			_stroke([Vector2(0,10),Vector2(-10,25)],ink,1.4)
+			_stroke([Vector2(0,10),Vector2(10,25)],ink,1.4)
+			_stroke([Vector2(0,-2),Vector2(6,5),Vector2(0,12),Vector2(-6,5)],Color("b08038"),1.8,true)
+			for i in 4:
+				var ray := Vector2.from_angle(-PI*0.85+i*0.7)
+				draw_line(ray*20,ray*26,Color("b08038"),1.0,true)
 		"shadow":
 			_stroke([Vector2(15,-24),Vector2(-4,-17),Vector2(-16,-2),Vector2(-10,16),Vector2(9,25),Vector2(2,10),Vector2(1,-5)],ink,1.55,true)
 			_stroke([Vector2(-9,-2),Vector2(-2,0),Vector2(-7,3)],ink,1.2)

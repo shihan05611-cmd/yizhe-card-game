@@ -21,6 +21,7 @@ const GROWTH_STAGE_ACTION := "stage_permanent_growth"
 const GROWTH_GET_STACKS_ACTION := "get_permanent_growth_stacks"
 const BURN_ID := "burn"
 const ENCHANT_ID := "enchant"
+const FLAME_CAST_COUNT_ID := "flameCastCount"
 const PURSUIT_ID := "pursuit"
 const FLAME_LEECH_ID := "flameLeech"
 const MAX_SAFE_INTEGER := 9007199254740991
@@ -112,32 +113,22 @@ static func _handle_ex_burn_enchant(context: Dictionary, ports: Variant) -> Dict
 	var plan := _plan(EX_BURN_ENCHANT, context, ports, errors)
 	if plan.is_empty():
 		return _fail(errors)
-	if plan["run_growth"]:
-		var staged: Dictionary = ports.call_action(GROWTH_STAGE_ACTION, {
-			"requests": plan["growth_plan"]["requests"],
-		}, errors)
-		if not staged["ok"]:
-			return staged
-		plan["state"]["battle_growth_flags"]["flame_investment_used"] = true
-		return CombatPortsScript.ok({
-			"effect_id": EX_BURN_ENCHANT,
-			"side": plan["side"],
-			"mode": "run_growth",
-			"base_cost": plan["growth_plan"]["base_cost"],
-			"eligible_slots": plan["growth_plan"]["eligible_slots"].duplicate(),
-			"permanent_buffs": staged["value"],
-		})
 	var buffs: Variant = plan["buffs"]
-	for unit: Dictionary in plan["own_alive"]:
+	for unit: Dictionary in plan["enchant_targets"]:
 		if not buffs.apply_unit(unit, ENCHANT_ID, 1, null, errors):
 			if errors.is_empty():
 				errors.append("burnEnchant failed while applying enchant to a preflighted unit")
 			return _fail(errors)
+	if not buffs.apply_side(plan["side"], FLAME_CAST_COUNT_ID, 1, null, errors):
+		if errors.is_empty():
+			errors.append("burnEnchant failed while recording its battle cast count")
+		return _fail(errors)
 	return CombatPortsScript.ok({
 		"effect_id": EX_BURN_ENCHANT,
 		"side": plan["side"],
 		"mode": "battle",
-		"target_ids": _unit_ids(plan["own_alive"]),
+		"target_ids": _unit_ids(plan["enchant_targets"]),
+		"cast_count": buffs.get_side_stacks(plan["side"], FLAME_CAST_COUNT_ID),
 	})
 
 
@@ -263,59 +254,22 @@ static func _plan(
 		common["fate"] = fate
 		return common
 	if effect_id == EX_BURN_ENCHANT:
-		var ratios: Variant = context.get("growth_piece_ratios")
-		var run_growth := ratios != null
-		if run_growth:
-			if side != "ally":
-				errors.append("permanent Flame growth is player-side only")
-				return {}
-			var stacks_result: Dictionary = ports.call_action(GROWTH_GET_STACKS_ACTION, {
-				"id": PermanentGrowth.FLAME_PRACTICE_ID,
-				"target": {"type": "hero", "id": PermanentGrowth.FLAME_HERO_ID},
-			}, errors)
-			if not stacks_result["ok"]:
-				errors.append(stacks_result["error"])
-				return {}
-			if typeof(stacks_result["value"]) != TYPE_INT:
-				errors.append("permanent growth stacks action returned a non-integer")
-				return {}
-			var growth_errors: Array[String] = []
-			var growth_plan := PermanentGrowth.flame_investment_plan(
-				own_team,
-				ratios,
-				stacks_result["value"],
-				state["battle_growth_flags"]["flame_investment_used"],
-				growth_errors,
-			)
-			_append_errors(growth_errors, errors)
-			if growth_plan.is_empty() or not growth_plan["available"]:
-				if errors.is_empty():
-					errors.append("permanent Flame investment is unavailable: %s" % str(growth_plan.get("reason")))
-				return {}
-			var preview: Dictionary = ports.call_action(GROWTH_PREVIEW_ACTION, {
-				"requests": growth_plan["requests"],
-			}, errors)
-			if not preview["ok"]:
-				errors.append(preview["error"])
-				return {}
-			common["run_growth"] = true
-			common["growth_plan"] = growth_plan
-			return common
 		if not _preflight_unit_buff(buffs, ENCHANT_ID, own_team, errors):
+			return {}
+		if buffs.definition_for(FLAME_CAST_COUNT_ID, "side", errors) == null:
 			return {}
 		var cap := _tuning_int(tuning, "enchantStackCap", errors)
 		if cap <= 0:
 			errors.append("enchantStackCap must be positive")
 			return {}
-		var eligible := false
+		var eligible: Array[Dictionary] = []
 		for unit: Dictionary in common["own_alive"]:
-			if not unit["is_puppet"] and buffs.get_unit_stacks(unit, ENCHANT_ID) < cap:
-				eligible = true
-				break
-		if not eligible:
-			errors.append("burnEnchant requires a living non-puppet unit below the Enchant cap")
+			if buffs.get_unit_enchantment_capacity(unit) > 0 and buffs.get_unit_stacks(unit, ENCHANT_ID) < cap:
+				eligible.append(unit)
+		if eligible.is_empty():
+			errors.append("burnEnchant requires a living enchantable unit below the Enchant cap")
 			return {}
-		common["run_growth"] = false
+		common["enchant_targets"] = eligible
 		return common
 	if effect_id == ULT_BURN01:
 		var damage: Variant = ports.service("damage", errors)

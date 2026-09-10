@@ -52,6 +52,11 @@ func hero_id() -> Variant:
 	return _pending.get("id")
 
 
+func present_energy_value(energy: float) -> void:
+	_pending["energy"] = energy
+	if is_node_ready(): _apply(_pending)
+
+
 func _apply(hero_vm: Dictionary) -> void:
 	var id: Variant = hero_vm.get("id", 0)
 	var side := str(hero_vm.get("side", ""))
@@ -159,14 +164,7 @@ func _status_tooltip(hero_vm: Dictionary, status_lines: Array) -> String:
 	var details: Array[String] = []
 	for line: String in status_lines:
 		if line.begins_with("拳势"):
-			details.append("拳势：当前 %s（上限 5）" % line.trim_prefix("拳势 "))
-		elif line.begins_with("拳意"):
-			details.append("拳意：Run 永久成长 %s" % line.trim_prefix("拳意 "))
-		elif line.begins_with("炎华"):
-			if line == "炎华 本场已用":
-				details.append("炎华：本场永久投资已使用")
-			else:
-				details.append("炎华：Run 永久投资次数（%s）" % line.trim_prefix("炎华 "))
+			details.append("拳势：当前 %s；5层后每层继续提供5%%拳系增伤" % line.trim_prefix("拳势 "))
 		elif line.begins_with("殉道"):
 			details.append("殉道：千机本场已启用傀儡殉道")
 		else:

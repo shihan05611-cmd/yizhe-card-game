@@ -5,6 +5,7 @@ signal hover_changed(card: Control, hovered: bool)
 signal drag_started(card: Control, pointer_global: Vector2)
 signal drag_moved(card: Control, pointer_global: Vector2)
 signal drag_finished(card: Control, pointer_global: Vector2)
+signal drag_cancelled
 
 const CATEGORY_NAMES := {
 	"free": "自由技",
@@ -152,6 +153,8 @@ func end_drag_at(pointer_global: Vector2) -> void:
 
 func cancel_drag(animate: bool = true) -> void:
 	_dragging = false
+	modulate.a = 1.0
+	drag_cancelled.emit()
 	_hover_shadow.visible = _hovered
 	_apply_rest_pose(animate)
 
@@ -259,19 +262,23 @@ func _card_short_description() -> String:
 		return _ultimate_short_line()
 	var short_lines := {
 		"pieceBlock": "我方全体格挡率 +15%\n持续 1 回合",
-		"pieceDamageUp": "我方全体直接伤害 +30%\n持续 1 回合",
+		"pieceAction": "拖到我方弈子\n下回合额外行动 1 次",
+		"pieceDamageUp": "我方全体直接伤害 +25%\n持续 1 回合",
 		"markBurn": "敌方灼烧层数最高单位\n施加 1 层灼烧",
-		"executeStrike": "攻击最高棋子攻击敌方最低生命者\n造成 150% 直接伤害",
+		"executeStrike": "拖到指定敌人；攻击最高棋子出手\n造成 150% 直接伤害",
+		"spSurge": "回复 2 技能点，可在本回合溢出\n本场消耗",
+		"tacticalDraw": "抽 2 张牌\n本场消耗",
 		"smallHeal": "我方当前生命最低棋子\n回复 5% 生命上限",
 		"shadow": "攻击最高的非傀儡棋子进入潜行 1 回合\n结算后回到手牌",
 		"pressOpening": "敌方有破势时\n攻击最高的非傀儡\n获得 2 层追击",
 		"fist": "造成基于棋子平均攻击的直接伤害\n并叠加 1 层拳势",
 		"siege": "对单体造成平均攻击的直接伤害\n并施加不可叠加的破势",
 		"puppet": "在我方空位召唤傀儡\n固定 100 生命、攻击 0",
+		"puppetAttunement": "指定傀儡获得 1 个附魔槽\n未指定时自动选择",
 		"ascend": "目标位棋子升变为将军\n生命上限 +80，格挡率 +10%",
 		"fate": "激活命运结界（每场一次）\n每回合随机切换命运",
 		"burn01": "已有灼烧层数翻倍\n并使其持续 +2 回合",
-		"burnEnchant": "存活非傀儡位置获得引火\n并立即生效",
+		"burnEnchant": "可附魔弈子获得 1 层炎华\n费用 1/2/2/4，此后均 4",
 	}
 	return str(short_lines.get(str(_card_vm.get("source_skill_id", "")), _card_vm.get("description", "")))
 

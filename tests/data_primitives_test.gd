@@ -20,7 +20,7 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("content event catalog matches the stable Web contract", func() -> void:
 		_test_events(harness)
 	)
-	harness.run_test("buff catalog matches all 18 Web definitions", func() -> void:
+	harness.run_test("buff catalog matches all 21 definitions including legacy compatibility records", func() -> void:
 		_test_buffs(harness)
 	)
 	harness.run_test("character catalogs match 9 players and 3 default enemies", func() -> void:
@@ -62,14 +62,15 @@ func _test_tuning(harness: TestHarness) -> void:
 		"pursuitDamageRatio": 0.5,
 		"enchantStackCap": 5,
 		"skipRecover": 1,
-		"roundRecover": 1,
+		"roundRecover": 2,
+		"enemyRoundRecover": 1,
 		"ascendCost": 2,
 		"ascendAtkBonus": 0,
 		"ascendHpBonus": 80,
 		"ascendBlockBonus": 0.1,
-		"ascendRepeatAtkBonus": 1.5,
-		"ascendRepeatBlockBonus": 0.015,
-		"ascendRepeatCritBonus": 0.015,
+		"ascendRepeatAtkBonus": 3.0,
+		"ascendRepeatBlockBonus": 0.03,
+		"ascendRepeatCritBonus": 0.03,
 		"ascendRepeatMissingHpHealRatio": 0.05,
 		"fistMasteryDamageUpPerStack": 0.05,
 		"ultBurn01AtkFactor": 0.05,
@@ -83,7 +84,7 @@ func _test_tuning(harness: TestHarness) -> void:
 		"ultBreakFormationTurns": 2,
 		"fateFixedOrder": "",
 	}
-	harness.assert_equal(catalog.size(), 42)
+	harness.assert_equal(catalog.size(), 43)
 	harness.assert_equal(TuningCatalogScript.values(catalog), expected)
 	for id in catalog:
 		harness.assert_true(
@@ -120,7 +121,8 @@ func _test_buffs(harness: TestHarness) -> void:
 	var catalog := BuffCatalogScript.build(TuningCatalogScript.build())
 	var expected := {
 		"burn": ["灼烧", "unit", true, true, 0, 2, true, false, "回合结算时每层造成持续伤害。", "battle", []],
-		"enchant": ["附魔", "unit", false, true, 5, 0, false, false, "攻击命中后按层数施加灼烧。", "battle", []],
+		"enchant": ["炎华附魔", "unit", false, true, 5, 0, false, false, "攻击命中后按层数施加灼烧。", "battle", []],
+		"general": ["将军", "unit", false, true, 0, 0, false, false, "封命赋予的将军附魔；重复释放继续强化属性。", "battle", []],
 		"knightChivalry": ["骑士道", "unit", false, true, 0, 0, false, false, "下一次反击强化。", "battle", []],
 		"march": ["出征", "unit", false, false, 1, 2, false, true, "将军攻击同列目标并必定暴击。", "battle", []],
 		"stealth": ["潜行", "unit", false, false, 1, 1, false, true, "暂时不被常规锁定，下一次攻击改为锁定低生命目标。", "battle", []],
@@ -128,18 +130,20 @@ func _test_buffs(harness: TestHarness) -> void:
 		"breakMarked": ["破势", "unit", true, false, 1, 0, false, false, "受到伤害提高，破阵领域中额外提高受暴击率。", "battle", []],
 		"tempBlock": ["临时格挡", "side", false, false, 1, 1, false, true, "全体格挡率临时提高。", "battle", []],
 		"pieceDamageUp": ["棋子增伤", "side", false, false, 1, 1, false, true, "棋子直接伤害提高。", "battle", []],
+		"flameCastCount": ["炎华施放", "side", false, true, 0, 0, false, false, "记录本场炎华成功释放次数。", "battle", []],
 		"bloodShiftVulnerable": ["血移易伤", "unit", true, false, 1, 1, false, true, "受到伤害提高。", "battle", []],
 		"bloodShiftGuard": ["血移庇护", "unit", false, false, 1, 1, false, true, "受到伤害降低。", "battle", []],
 		"flameLeech": ["炎汲", "side", false, false, 1, 2, false, true, "灼烧目标攻击本方时触发治疗。", "battle", []],
 		"breakFormation": ["破阵领域", "side", false, false, 1, 2, false, true, "本方对敌方伤害提高，并强化破势目标受暴击率。", "battle", []],
 		"pursuit": ["追击", "unit", false, true, 0, 0, false, false, "下一次棋子行动后追加一次追击。", "battle", []],
-		"flamePractice": ["炎华修习", null, false, true, 0, 0, false, false, "记录炎术士在本轮 Run 中完成的永久投资次数。", "permanent", ["hero"]],
-		"flameEnchant": ["引火", null, false, true, 0, 0, false, false, "记录棋子位置获得的引火层数。", "permanent", ["pieceSlot"]],
-		"marshalPromotion": ["元帅晋升", null, false, true, 0, 0, false, false, "记录棋子位置获得的元帅永久成长层数。", "permanent", ["pieceSlot"]],
-		"fistMastery": ["永久拳意", null, false, true, 0, 0, false, false, "每层使拳劲与大招伤害+5%；每5层使大招基础段数+1。", "permanent", ["hero"]],
+		"nextRoundAction": ["下回合额外行动", "unit", false, true, 0, 2, true, true, "每层使该弈子在下回合获得一次额外行动；行动结算后消耗。", "battle", []],
+		"flamePractice": ["炎华修习（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", "permanent", ["hero"]],
+		"flameEnchant": ["引火（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", "permanent", ["pieceSlot"]],
+		"marshalPromotion": ["元帅晋升（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", "permanent", ["pieceSlot"]],
+		"fistMastery": ["永久拳意（旧）", null, false, true, 0, 0, false, false, "旧存档兼容记录；当前版本不再产生或生效。", "permanent", ["hero"]],
 	}
 	harness.assert_equal(catalog.keys(), expected.keys())
-	harness.assert_equal(catalog.size(), 18)
+	harness.assert_equal(catalog.size(), 21)
 	for id in expected:
 		var definition: Variant = catalog[id]
 		harness.assert_equal([
@@ -155,6 +159,9 @@ func _test_buffs(harness: TestHarness) -> void:
 			definition.persistence,
 			definition.target_types,
 		], expected[id], id)
+	harness.assert_equal(catalog["enchant"].kind, "enchantment")
+	harness.assert_equal(catalog["general"].kind, "enchantment")
+	harness.assert_equal(catalog["march"].kind, "normal")
 
 
 func _test_characters(harness: TestHarness) -> void:

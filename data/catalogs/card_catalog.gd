@@ -7,6 +7,8 @@ const Ability = preload("res://data/definitions/hero_ability_definition.gd")
 const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
 
 const EXCLUDED_FREE_SKILL_IDS: Array[String] = ["basicDamage"]
+const EXHAUST_FREE_SKILL_IDS: Array[String] = ["spSurge", "tacticalDraw"]
+const TARGETED_FREE_SKILL_IDS: Array[String] = ["executeStrike", "pieceAction"]
 
 
 static func build(skill_catalog: Dictionary, ability_catalog: Dictionary) -> Dictionary:
@@ -42,9 +44,10 @@ static func build_from(
 			0,
 			Card.PILE_DISCARD,
 			Card.PILE_DISCARD,
-			false,
+			skill.id in EXHAUST_FREE_SKILL_IDS,
 			skill.condition_id,
 			skill.effect_id,
+			skill.id in TARGETED_FREE_SKILL_IDS,
 		)
 		catalog[definition.id] = definition
 

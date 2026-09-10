@@ -223,9 +223,29 @@ func _test_devourer_branches(harness: TestHarness) -> void:
 	var replay := _run_devourer_seed("B2-devourer")
 	harness.assert_equal(first, replay)
 	harness.assert_equal(first["sp"], 0.0)
-	harness.assert_equal(first["events"].map(func(event: Dictionary) -> String: return event["kind"]), ["sp_drain", "energy_drain"])
+	harness.assert_equal(first["events"].map(func(event: Dictionary) -> String: return event["kind"]), ["sp_drain", "sp_drain", "energy_drain"])
+	var sp_event: Dictionary = first["events"][0]
+	harness.assert_equal([
+		sp_event["resource"], sp_event["old_sp"], sp_event["new_sp"],
+		sp_event["amount"], sp_event["source_action_id"],
+	], ["sp", 2.0, 1.0, 1.0, "normalAttack"])
+	harness.assert_equal(sp_event["actor"], {"id": 1, "side": "enemy", "slot": null})
+	var second_sp_event: Dictionary = first["events"][1]
+	harness.assert_equal([
+		second_sp_event["old_sp"], second_sp_event["new_sp"], second_sp_event["amount"],
+	], [1.0, 0.0, 1.0])
+	var energy_event: Dictionary = first["events"][2]
+	harness.assert_equal([
+		energy_event["resource"], energy_event["old_sp"], energy_event["new_sp"],
+		energy_event["amount"], energy_event["source_action_id"],
+	], ["hero_energy", 0.0, 0.0, 10.0, "normalAttack"])
+	harness.assert_true(energy_event["target"]["hero_id"] in [1, 2])
+	harness.assert_equal(
+		energy_event["target"]["old_energy"] - energy_event["target"]["new_energy"],
+		10.0,
+	)
 	harness.assert_equal(first["energies"].reduce(func(sum: float, value: Variant) -> float: return sum + float(value), 0.0), 90.0)
-	harness.assert_equal(first["logs"].size(), 2)
+	harness.assert_equal(first["logs"].size(), 3)
 	var content: Dictionary = ContentCatalog.build()
 	var empty_devourer := _enemy("devourer", 10)
 	var empty_setup := _enemy_setup(content, [empty_devourer], [], {"value": 0.0}, Rng.seeded("empty-active"))
@@ -346,11 +366,22 @@ func _run_devourer_seed(seed: String) -> Dictionary:
 		{"id": 1, "side": "ally", "deployed": true, "energy": 50},
 		{"id": 2, "side": "ally", "deployed": true, "energy": 50},
 	]
-	var sp := {"value": 1.0}
+	var sp := {"value": 2.0}
 	var setup := _enemy_setup(content, enemies, heroes, sp, Rng.seeded(seed))
 	var dispatcher: Variant = setup["dispatcher"]
-	dispatcher.dispatch("piece_attack_hit", {"actor": devourer, "round": 1})
-	dispatcher.dispatch("pieceAttackHit", {"actor": devourer, "round": 1})
+	var source_effect := {
+		"source_type": "basic_attack", "source_id": "normalAttack",
+		"source_name": "普攻", "source_side": "enemy", "source_actor_id": devourer["id"],
+	}
+	dispatcher.dispatch("piece_attack_hit", {
+		"actor": devourer, "round": 1, "source_effect": source_effect,
+	})
+	dispatcher.dispatch("pieceAttackHit", {
+		"actor": devourer, "round": 1, "source_effect": source_effect,
+	})
+	dispatcher.dispatch("pieceAttackHit", {
+		"actor": devourer, "round": 1, "source_effect": source_effect,
+	})
 	return {
 		"sp": sp["value"],
 		"energies": heroes.map(func(hero: Dictionary) -> int: return hero["energy"]),

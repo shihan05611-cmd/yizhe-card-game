@@ -37,6 +37,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("battle layout keeps outer heroes shared arena and reserved hand", func() -> void:
 		_test_layout_bounds(harness)
 	)
+	harness.run_test("targeted card releases resolve only against eligible board units", func() -> void:
+		_test_targeted_card_release(harness)
+	)
 	harness.run_test("battle binding scripts instantiate scenes while drawing stays in ui/art", func() -> void:
 		_test_no_immediate_drawing(harness)
 	)
@@ -154,6 +157,50 @@ func _test_layout_bounds(harness: TestHarness) -> void:
 	harness.assert_equal(screen.hand_view.get_parent(), screen)
 	harness.assert_equal(screen.log_slot.get_node("LogClip/CombatLog"), screen.combat_log)
 	harness.assert_true(screen.log_slot.z_index > screen.hand_view.z_index)
+	_release(screen)
+
+
+func _test_targeted_card_release(harness: TestHarness) -> void:
+	var screen := BattleScreenScene.instantiate()
+	_attach(screen)
+	var vm := _vm()
+	vm["hand"] = [{
+		"instance_id": "target-card", "card_id": "free:executeStrike",
+		"source_skill_id": "executeStrike", "name": "斩杀", "description": "",
+		"category": "free", "owner_hero_id": null, "base_cost": 2,
+		"effective_cost": 2, "play_destination": "discard",
+		"exhausts_on_success": false, "playable": true,
+		"unavailable_code": "", "unavailable_reason": "",
+		"targeting": {"mode": "required", "side": "enemy", "filter": "lockable"},
+	}]
+	screen.bind_view_model(vm)
+	var enemy_slot: Control = screen.enemy_board.slot_for_target({"unit_id": 101, "slot": 1})
+	var command := {
+		"type": "play_card", "instance_id": "target-card",
+		"expected_card_id": "free:executeStrike",
+		"expected_source_skill_id": "executeStrike", "owner_hero_id": null,
+		"release_position": enemy_slot.get_global_rect().get_center(),
+	}
+	var resolved: Dictionary = screen.call("_resolve_card_target", command)
+	harness.assert_equal(resolved.get("target"), {"side": "enemy", "unit_id": 101, "slot": 1})
+	var ally_slot: Control = screen.ally_board.slot_for_target({"unit_id": 1, "slot": 1})
+	command["release_position"] = Vector2(-1000.0, -1000.0)
+	harness.assert_equal(screen.call("_resolve_card_target", command), {}, "斩杀无效落点必须退回")
+
+	vm["hand"][0]["card_id"] = "exclusive:ascend"
+	vm["hand"][0]["source_skill_id"] = "ascend"
+	vm["hand"][0]["targeting"] = {"mode": "required", "side": "ally", "filter": "living_non_puppet"}
+	screen.bind_view_model(vm)
+	command["expected_card_id"] = "exclusive:ascend"
+	command["expected_source_skill_id"] = "ascend"
+	command["release_position"] = ally_slot.get_global_rect().get_center()
+	resolved = screen.call("_resolve_card_target", command)
+	harness.assert_equal(resolved.get("target"), {"side": "ally", "unit_id": 1, "slot": 1})
+	vm["hand"][0]["targeting"]["mode"] = "automatic"
+	screen.bind_view_model(vm)
+	resolved = screen.call("_resolve_card_target", command)
+	harness.assert_false(resolved.has("release_position"))
+	harness.assert_false(resolved.has("target"), "封命续放交由既有将军自动选取")
 	_release(screen)
 
 

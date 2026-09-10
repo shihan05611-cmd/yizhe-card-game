@@ -247,6 +247,8 @@ func execute(command: Dictionary, errors: Array[String] = []) -> bool:
 			ok = lifecycle.choose_node(command.get("node_id"), errors)
 		"select_reward", "claim_reward":
 			ok = lifecycle.select_reward(command.get("option_id"), errors)
+		"skip_normal_reward_group":
+			ok = lifecycle.skip_normal_reward_group(command.get("group"), errors)
 		"recruit_hero":
 			ok = lifecycle.recruit_hero(command.get("hero_id"), errors)
 		"buy_shop_option":

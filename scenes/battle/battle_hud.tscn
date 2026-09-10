@@ -39,6 +39,37 @@ anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("script")
 
+[node name="RelicTriggerNotice" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -275.0
+offset_top = 65.0
+offset_right = -32.0
+offset_bottom = 92.0
+horizontal_alignment = 2
+mouse_filter = 2
+visible = false
+theme_override_colors/font_color = Color(1, 0.86, 0.48, 1)
+theme_override_colors/font_outline_color = Color(0.06, 0.12, 0.1, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 15
+
+[node name="SpDrainNotice" type="Label" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 28.0
+offset_top = -218.0
+offset_right = 200.0
+offset_bottom = -190.0
+mouse_filter = 2
+visible = false
+theme_override_colors/font_color = Color(0.92, 0.65, 1, 1)
+theme_override_colors/font_outline_color = Color(0.06, 0.12, 0.1, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 17
+
 [node name="RoundLabel" type="Label" parent="."]
 unique_name_in_owner = true
 layout_mode = 1

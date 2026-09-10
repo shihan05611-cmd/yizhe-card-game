@@ -54,6 +54,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("finalize recovers clamps decays stealth all-in Fate hooks and events", func() -> void:
 		_test_finalize(harness)
 	)
+	harness.run_test("player next-round action layers wait stack consume together and preserve new layers", func() -> void:
+		_test_next_round_actions(harness)
+	)
 	harness.run_test("settled and phase gates make round entry explicit and non-reentrant", func() -> void:
 		_test_phase_gates(harness)
 	)
@@ -174,6 +177,41 @@ func _test_finalize(harness: TestHarness) -> void:
 	harness.assert_equal(fixture["state"]["enemy_fate"]["mode"], "棋子命运")
 	harness.assert_equal(fixture["state"]["phase"], "player_input")
 	harness.assert_equal(fixture["hook_dispatcher"].get_trigger_count("zeroCostSpark", 0), 0)
+
+
+func _test_next_round_actions(harness: TestHarness) -> void:
+	var fixture := _fixture({"zero_attack": true})
+	var unit := _unit(fixture["state"], "ally", 1)
+	var errors: Array[String] = []
+	harness.assert_true(fixture["buffs"].apply_unit(unit, "nextRoundAction", 2, 2, errors))
+	var first := RoundResolverScript.resolve(fixture["request"], fixture["ports"])
+	harness.assert_true(first["ok"], str(first))
+	var first_action: Dictionary = _piece_entry(first["value"]["trace"], "ally", 1)
+	harness.assert_equal(first_action["result"]["strikes"], 1, "duration-2 layers do not trigger in the cast round")
+	harness.assert_equal(fixture["buffs"].get_unit_state(unit, "nextRoundAction")["layer_turns"], [1, 1])
+
+	# A new cast in round 2 stays pending while both ready layers are consumed.
+	harness.assert_true(fixture["buffs"].apply_unit(unit, "nextRoundAction", 1, 2, errors))
+	var second := RoundResolverScript.resolve(fixture["request"], fixture["ports"])
+	harness.assert_true(second["ok"], str(second))
+	var second_action: Dictionary = _piece_entry(second["value"]["trace"], "ally", 1)
+	harness.assert_equal(second_action["result"]["strikes"], 3, "two ready layers grant two extra actions")
+	harness.assert_true("next_round_actions_consumed:2" in second_action["result"]["steps"])
+	harness.assert_equal(fixture["buffs"].get_unit_state(unit, "nextRoundAction")["layer_turns"], [1], "the newly cast layer activates one round later")
+
+	var third := RoundResolverScript.resolve(fixture["request"], fixture["ports"])
+	harness.assert_true(third["ok"], str(third))
+	harness.assert_equal(_piece_entry(third["value"]["trace"], "ally", 1)["result"]["strikes"], 2)
+	harness.assert_false(fixture["buffs"].has_unit(unit, "nextRoundAction"))
+
+	var dead_fixture := _fixture({"zero_attack": true})
+	var doomed := _unit(dead_fixture["state"], "ally", 1)
+	harness.assert_true(dead_fixture["buffs"].apply_unit(doomed, "nextRoundAction", 1, 2, errors))
+	harness.assert_true(RoundResolverScript.resolve(dead_fixture["request"], dead_fixture["ports"])["ok"])
+	_kill(doomed)
+	var dead_round := RoundResolverScript.resolve(dead_fixture["request"], dead_fixture["ports"])
+	harness.assert_true(dead_round["ok"], str(dead_round))
+	harness.assert_false(dead_fixture["buffs"].has_unit(doomed, "nextRoundAction"), "a dead unit's due layer expires without acting or reviving")
 
 
 func _test_phase_gates(harness: TestHarness) -> void:
@@ -560,6 +598,14 @@ func _trace_entries(trace: Array, phase: String, status: String) -> Array:
 	return trace.filter(func(item: Dictionary) -> bool:
 		return item["phase"] == phase and item["status"] == status
 	)
+
+
+func _piece_entry(trace: Array, side: String, slot: int) -> Dictionary:
+	var phase := "%s_piece" % side
+	for item: Dictionary in trace:
+		if item["phase"] == phase and item["side"] == side and item["slot"] == slot and item["status"] == "completed":
+			return item
+	return {}
 
 
 func _trace_phases(trace: Array, phases: Array) -> Array:

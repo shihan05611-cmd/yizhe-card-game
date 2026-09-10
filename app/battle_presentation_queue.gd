@@ -193,14 +193,14 @@ func _build_segments(events: Array[Dictionary]) -> Array[Dictionary]:
 		if grouped_indices.has(index):
 			continue
 		var event: Dictionary = events[index]
-		var wave_id := _damage_wave_id(event)
+		var wave_id := _presentation_group_id(event)
 		if not wave_id.is_empty():
 			var wave_events: Array[Dictionary] = []
 			for candidate_index in range(index, events.size()):
 				if grouped_indices.has(candidate_index):
 					continue
 				var candidate: Dictionary = events[candidate_index]
-				if _damage_wave_id(candidate) != wave_id:
+				if _presentation_group_id(candidate) != wave_id:
 					continue
 				grouped_indices[candidate_index] = true
 				wave_events.append(candidate)
@@ -232,11 +232,13 @@ func _append_segment(segments: Array[Dictionary], events: Array[Dictionary]) -> 
 	segments.append({"events": events, "base_duration_ms": max_duration})
 
 
-func _damage_wave_id(event: Dictionary) -> String:
-	if event.get("kind") != "damage" or event.get("event_id") != "damage_applied":
-		return ""
+func _presentation_group_id(event: Dictionary) -> String:
 	var source: Variant = event.get("source", {})
 	if typeof(source) != TYPE_DICTIONARY:
+		return ""
+	if event.get("kind") == "combat" and event.get("event_id") == "enemySpecialTriggered":
+		return str(source.get("presentation_action_id", ""))
+	if event.get("kind") != "damage" or event.get("event_id") != "damage_applied":
 		return ""
 	var skill_wave := str(source.get("presentation_wave_id", ""))
 	if not skill_wave.is_empty():

@@ -23,15 +23,17 @@ func _test_derived_catalog(harness: TestHarness) -> void:
 	var skills := SkillCatalogScript.build()
 	var abilities := _abilities()
 	var catalog := CardCatalogScript.build(skills, abilities)
-	harness.assert_equal(catalog.size(), 28)
+	harness.assert_equal(catalog.size(), 31)
 	var expansion: Variant = catalog["exclusive:pressOpening"]
 	harness.assert_equal([expansion.owner_hero_id, expansion.base_sp_cost, expansion.card_category], [7, 1, Card.CATEGORY_EXCLUSIVE])
+	var puppet_expansion: Variant = catalog["exclusive:puppetAttunement"]
+	harness.assert_equal([puppet_expansion.owner_hero_id, puppet_expansion.base_sp_cost, puppet_expansion.card_category], [8, 1, Card.CATEGORY_EXCLUSIVE])
 	harness.assert_false(abilities["exclusive"].has("pressOpening"), "follow-up cards do not replace initial hero abilities")
+	harness.assert_false(abilities["exclusive"].has("puppetAttunement"), "follow-up cards do not replace initial hero abilities")
 	harness.assert_false(catalog.has("free:basicDamage"))
 	for definition in catalog.values():
 		harness.assert_true(definition is Resource and definition.get_script() == Card)
 		harness.assert_true(definition.source_skill_id != "basicDamage")
-		harness.assert_false(definition.card_requires_target)
 		harness.assert_true(not definition.validator_id.is_empty())
 		harness.assert_true(not definition.effect_id.is_empty())
 
@@ -66,6 +68,10 @@ func _test_derived_catalog(harness: TestHarness) -> void:
 		ultimate.does_card_exhaust(),
 	], ["burn01", Card.CATEGORY_ULTIMATE, 0, 1, Card.PILE_EXHAUST, true])
 	harness.assert_equal(catalog["exclusive:fate"].max_successful_plays_per_combat, 1)
+	harness.assert_true(catalog["free:executeStrike"].card_requires_target)
+	harness.assert_true(catalog["free:pieceAction"].card_requires_target)
+	harness.assert_true(catalog["free:spSurge"].does_card_exhaust())
+	harness.assert_true(catalog["free:tacticalDraw"].does_card_exhaust())
 
 	# Q8 removes only the player card exposure. M1/M2 authority remains intact.
 	harness.assert_true(skills.has("basicDamage"))

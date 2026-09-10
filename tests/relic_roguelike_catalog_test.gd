@@ -183,11 +183,21 @@ func _test_roguelike_content(harness: TestHarness) -> void:
 	var catalog: Dictionary = RoguelikeCatalogScript.build()
 	harness.assert_equal(catalog["node_types"], ["battle", "elite", "boss", "forge", "shop", "event"])
 	harness.assert_equal(catalog["chapters"].keys(), [1, 2, 3])
-	harness.assert_equal(catalog["encounters"].keys(), ["normal", "elite_core", "boss_core"])
+	harness.assert_equal(catalog["encounters"].size(), 13)
+	harness.assert_true(catalog["encounters"].has("normal_vanguard"))
+	harness.assert_true(catalog["encounters"].has("elite_devourer"))
+	harness.assert_true(catalog["encounters"].has("boss_echo"))
+	harness.assert_true(catalog["encounters"].has("elite_core"))
+	for chapter: Resource in catalog["chapters"].values():
+		var chapter_data: Dictionary = chapter.metadata
+		var fresh_encounters: Array = chapter_data["battleEncounterIds"] + chapter_data["eliteEncounterIds"] + [chapter_data["bossEncounterId"]]
+		harness.assert_false(fresh_encounters.any(func(id: String) -> bool:
+			return id in ["normal", "elite_core", "boss_core"]
+		))
 	harness.assert_equal(catalog["shentongs"].keys(), ["charge", "assault", "sacrifice"])
 	harness.assert_equal(catalog["relics"].size(), 22)
 	harness.assert_equal(catalog["piece_classes"].size(), 5)
-	harness.assert_equal(catalog["free_skills"].size(), 11)
+	harness.assert_equal(catalog["free_skills"].size(), 13)
 	harness.assert_equal(catalog["enemy_specials"].size(), 2)
 	var references_with_executable := _references_from_catalog(catalog)
 	references_with_executable["free_skills"]["staticSkill"] = {
@@ -227,22 +237,21 @@ func _test_roguelike_content(harness: TestHarness) -> void:
 		var data: Dictionary = catalog["chapters"][chapter_id].metadata
 		harness.assert_equal([data["chapter"], data["rows"], data["columns"]], [chapter_id, 3, 10])
 		harness.assert_equal(data["columnRules"].map(func(rule: Dictionary) -> Array: return rule["fixedByRow"]), expected_columns[chapter_id])
-		harness.assert_equal([data["battleEncounterIds"], data["eliteEncounterIds"], data["bossEncounterId"]], [["normal"], ["elite_core"], "boss_core"])
-		harness.assert_equal(data["battleReward"], {"freeSkillCount": 0, "relicCount": 3, "currency": 15})
+		harness.assert_equal(data["battleReward"], {"freeSkillCount": 3, "relicCount": 0, "currency": 15})
+		harness.assert_true(data["battleEncounterIds"].size() >= 2)
+		harness.assert_true(data["eliteEncounterIds"].size() >= 1)
+		harness.assert_true(catalog["encounters"].has(data["bossEncounterId"]))
 		harness.assert_equal(data["eliteReward"], {"freeSkillCount": 2, "relicCount": 1, "currency": 25})
 		harness.assert_equal(data["bossReward"], {"freeSkillCount": 1, "relicCount": 2, "currency": 40})
 
-	var normal: Dictionary = catalog["encounters"]["normal"].metadata
-	harness.assert_equal(normal, {"id": "normal", "name": "普通战斗", "hpScale": 1.0, "atkScale": 1.0, "slots": []})
-	var elite: Dictionary = catalog["encounters"]["elite_core"].metadata
-	var boss: Dictionary = catalog["encounters"]["boss_core"].metadata
-	harness.assert_equal([elite["name"], elite["hpScale"], elite["atkScale"], elite["slots"].size()], ["精英核心", 1.0, 1.0, 6])
-	harness.assert_equal([boss["name"], boss["hpScale"], boss["atkScale"], boss["slots"].size()], ["Boss", 1.0, 1.0, 6])
-	for index in range(6):
-		var elite_slot: Dictionary = elite["slots"][index]
-		var boss_slot: Dictionary = boss["slots"][index]
-		harness.assert_equal([elite_slot["unitId"], elite_slot["pieceClassId"], elite_slot["specialId"], elite_slot["className"], elite_slot["hpScale"], elite_slot["atkScale"], elite_slot["empty"]], [index + 1, null, null, "肉鸽精英" if index < 3 else "空位", 1.6 if index < 3 else 1.0, 1.0, index >= 3])
-		harness.assert_equal([boss_slot["unitId"], boss_slot["pieceClassId"], boss_slot["specialId"], boss_slot["className"], boss_slot["hpScale"], boss_slot["atkScale"], boss_slot["empty"]], [index + 1, null, null, "肉鸽Boss" if index == 0 else "空位", 5.0 if index == 0 else 1.0, 1.0, index != 0])
+	for encounter: Resource in catalog["encounters"].values():
+		harness.assert_equal(encounter.metadata["slots"].size(), 6)
+		for slot: Dictionary in encounter.metadata["slots"]:
+			harness.assert_true(slot.has("occupiesSlots"))
+	var devourer: Dictionary = catalog["encounters"]["elite_devourer"].metadata["slots"][0]
+	var echo: Dictionary = catalog["encounters"]["elite_echo"].metadata["slots"][3]
+	harness.assert_equal([devourer["specialId"], devourer["occupiesSlots"]], ["devourer", [1, 2]])
+	harness.assert_equal([echo["specialId"], echo["occupiesSlots"]], ["echo", [4, 5, 6]])
 
 	var shentong_rows := [
 		["charge", "蓄势", "全体消耗本回合行动，回复存活棋子并延长敌方灼烧；本回合减伤，下一有效回合增伤。", "必须是本回合第一个玩家行动。", 1, "shentong.charge"],
@@ -267,7 +276,7 @@ func _test_roguelike_atomic_validation(harness: TestHarness) -> void:
 	)
 	harness.assert_equal(errors, [])
 	harness.assert_equal(reordered["chapters"].keys(), [1, 2, 3])
-	harness.assert_equal(reordered["encounters"].keys(), ["normal", "elite_core", "boss_core"])
+	harness.assert_equal(reordered["encounters"].keys(), valid_catalog["encounters"].keys())
 	harness.assert_equal(reordered["shentongs"].keys(), ["charge", "assault", "sacrifice"])
 
 	errors.clear()
@@ -298,7 +307,7 @@ func _test_roguelike_atomic_validation(harness: TestHarness) -> void:
 	errors.clear()
 	var bad_slots := _definitions_from_catalog(valid_catalog)
 	for definition in bad_slots:
-		if definition.kind == "encounter" and definition.id == "elite_core":
+		if definition.kind == "encounter" and definition.id == "elite_devourer":
 			definition.metadata["slots"][1]["unitId"] = 1
 	harness.assert_equal(RoguelikeCatalogScript.build_from(bad_slots, references, errors), {})
 	harness.assert_true(not errors.is_empty())
@@ -306,7 +315,7 @@ func _test_roguelike_atomic_validation(harness: TestHarness) -> void:
 	errors.clear()
 	var dangling_special := _definitions_from_catalog(valid_catalog)
 	for definition in dangling_special:
-		if definition.kind == "encounter" and definition.id == "elite_core":
+		if definition.kind == "encounter" and definition.id == "elite_devourer":
 			definition.metadata["slots"][0]["specialId"] = "missing"
 	harness.assert_equal(RoguelikeCatalogScript.build_from(dangling_special, references, errors), {})
 	harness.assert_true(not errors.is_empty())
@@ -331,12 +340,12 @@ func _test_deep_snapshot_isolation(harness: TestHarness) -> void:
 	var second_content: Dictionary = RoguelikeCatalogScript.build()
 	first_content["node_types"].append("mutated")
 	first_content["chapters"][1].metadata["columnRules"][0]["fixedByRow"][0] = "event"
-	first_content["encounters"]["elite_core"].metadata["slots"][0]["className"] = "mutated"
+	first_content["encounters"]["elite_devourer"].metadata["slots"][0]["className"] = "mutated"
 	first_content["shentongs"]["charge"].metadata["handler_id"] = "mutated"
 	first_content["relics"]["spLimitPlus"]["name"] = "mutated"
 	harness.assert_equal(second_content["node_types"], ["battle", "elite", "boss", "forge", "shop", "event"])
 	harness.assert_equal(second_content["chapters"][1].metadata["columnRules"][0]["fixedByRow"], ["battle", "battle", "battle"])
-	harness.assert_equal(second_content["encounters"]["elite_core"].metadata["slots"][0]["className"], "肉鸽精英")
+	harness.assert_equal(second_content["encounters"]["elite_devourer"].metadata["slots"][0]["className"], "噬元兽")
 	harness.assert_equal(second_content["shentongs"]["charge"].metadata["handler_id"], "shentong.charge")
 	harness.assert_equal(second_content["relics"]["spLimitPlus"]["name"], "01号遗物")
 

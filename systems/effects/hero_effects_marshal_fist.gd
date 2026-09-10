@@ -24,7 +24,7 @@ const ULT_ASCEND := "battle.castUltimateByHero.ascend"
 const ULT_FIST := "battle.castUltimateByHero.fist"
 
 const CONTEXT_REQUIRED_KEYS := ["state", "caster", "source_effect"]
-const CONTEXT_OPTIONAL_KEYS := ["growth_piece_ratios"]
+const CONTEXT_OPTIONAL_KEYS := ["growth_piece_ratios", "target_unit_id"]
 const EFFECT_CONTEXT_KEYS := [
 	"source_type", "source_id", "source_name", "source_side", "source_actor_id",
 	"counts_as_skill_cast", "spent_skill_points", "free_cast",
@@ -32,6 +32,7 @@ const EFFECT_CONTEXT_KEYS := [
 ]
 const KNIGHT_CHIVALRY_ID := "knightChivalry"
 const MARCH_ID := "march"
+const GENERAL_ID := "general"
 const BREAK_MARKED_ID := "breakMarked"
 const BREAK_FORMATION_ID := "breakFormation"
 
@@ -149,14 +150,18 @@ static func _counter_ultimate(context: Dictionary, ports: Variant) -> Dictionary
 static func _ascend_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 	var state: Dictionary = context["state"]
 	var side: String = context["source_effect"]["source_side"]
-	var ratios: Variant = _growth_ratios(context)
 	var errors: Array[String] = []
-	var candidates := _eligible_marshal_units(state, side, ratios, errors)
+	var candidates := _eligible_marshal_units(state, side, null, errors)
 	if not errors.is_empty() or candidates.is_empty():
 		return CombatPortsScript.fail("ascend exclusive has no eligible unit%s" % _error_suffix(errors))
+	var buffs: Variant = ports.service("buffs", errors)
+	if not errors.is_empty() or not _preflight_unit_buff(buffs, candidates, GENERAL_ID, errors):
+		return CombatPortsScript.fail("ascend general enchantment preflight failed%s" % _error_suffix(errors))
 	var general: Variant = null
 	for unit: Dictionary in candidates:
-		if unit["general"]:
+		# The enchantment is authoritative. A legacy/stale boolean alone must not
+		# bypass the first-cast target requirement.
+		if buffs.has_unit(unit, GENERAL_ID):
 			general = unit
 			break
 	var repeated := general != null
@@ -164,51 +169,24 @@ static func _ascend_exclusive(context: Dictionary, ports: Variant) -> Dictionary
 	if repeated:
 		target = general
 	else:
-		target = _marshal_target(candidates, int(state["marshal_target_id"]) if side == "ally" else 1)
+		target = _selected_marshal_target(context, candidates)
+		if target.is_empty() and side == "enemy":
+			target = _marshal_target(candidates, int(state["marshal_target_id"]))
+		if target.is_empty():
+			return CombatPortsScript.fail("ascend initial cast requires an explicit living allied unit target")
 	var tuning := _marshal_tuning(ports, errors)
 	if not errors.is_empty():
 		return CombatPortsScript.fail("ascend tuning preflight failed%s" % _error_suffix(errors))
-
-	var before_stacks := 1 if repeated else 0
-	var growth_before_snapshot: Array = []
-	var growth_preview: Variant = null
-	if ratios != null:
-		var read := _read_growth_stacks(
-			ports, MarshalGrowthScript.BUFF_ID, "pieceSlot", target["slot"], errors,
-		)
-		if not errors.is_empty() or read.is_empty():
-			return CombatPortsScript.fail("ascend growth stack preflight failed%s" % _error_suffix(errors))
-		before_stacks = int(read["stacks"])
-		growth_before_snapshot = read["snapshot"]
-	# Run growth writes the actual permanent stack. A living General with a
-	# historically missing stack still receives Web's repeat combat delta (1->2),
-	# while the draft correctly grows 0->1.
-	var growth_plan := MarshalGrowthScript.promotion_plan(target["slot"], before_stacks, tuning, errors)
-	var combat_before := maxi(1, before_stacks) if repeated else before_stacks
+	var before_stacks: int = buffs.get_unit_stacks(target, GENERAL_ID)
+	var combat_before := maxi(1, before_stacks) if repeated else 0
 	var combat_delta := MarshalGrowthScript.promotion_delta(combat_before, combat_before + 1, tuning, errors)
-	if not errors.is_empty() or growth_plan.is_empty() or combat_delta.is_empty():
+	if not errors.is_empty() or combat_delta.is_empty():
 		return CombatPortsScript.fail("ascend projection preflight failed%s" % _error_suffix(errors))
 	var projected := MarshalGrowthScript.project_unit(target, combat_delta, errors)
 	if not errors.is_empty() or projected.is_empty():
 		return CombatPortsScript.fail("ascend unit projection failed%s" % _error_suffix(errors))
-	if ratios != null:
-		growth_preview = _preview_growth_exact(
-			ports, growth_before_snapshot, growth_plan["request"], errors,
-		)
-		if not errors.is_empty():
-			return CombatPortsScript.fail("ascend growth preview failed%s" % _error_suffix(errors))
-
-	# External Run draft is committed first, matching Web. Battle state changes only
-	# after the atomic GrowthPort has confirmed the exact previewed final batch.
-	var growth_committed := false
-	if ratios != null:
-		var staged: Dictionary = ports.call_action(GrowthPortScript.ACTION_STAGE, {"requests": [growth_plan["request"]]})
-		if not staged["ok"]:
-			return CombatPortsScript.fail("ascend growth stage failed (no battle state committed): %s" % staged["error"])
-		growth_committed = true
-		if staged["value"] != growth_preview:
-			return CombatPortsScript.fail("ascend growth stage disagrees with preview (growth committed; no battle state committed)")
-
+	if not buffs.apply_unit(target, GENERAL_ID, 1, null, errors):
+		return CombatPortsScript.fail("ascend general enchantment apply failed%s" % _error_suffix(errors))
 	for field in ["atk", "max_hp", "hp", "base_block_rate", "crit_rate"]:
 		target[field] = projected[field]
 	if not repeated:
@@ -234,9 +212,7 @@ static func _ascend_exclusive(context: Dictionary, ports: Variant) -> Dictionary
 		"skill_id": "ascend", "ultimate": false, "committed": true,
 		"target_id": target["id"], "target_slot": target["slot"],
 		"repeated": repeated, "healed": healed,
-		"growth_committed": growth_committed,
-		"growth_before_stacks": before_stacks,
-		"growth_after_stacks": before_stacks + (1 if ratios != null else 0),
+		"general_stacks": buffs.get_unit_stacks(target, GENERAL_ID),
 	})
 
 
@@ -298,27 +274,13 @@ static func _fist_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 	var candidates := TargetingRulesScript.lockable(state, opposing, errors)
 	if not errors.is_empty() or candidates.is_empty():
 		return CombatPortsScript.fail("fist exclusive target preflight failed%s" % _error_suffix(errors))
-	var tuning: Variant = ports.service("tuning", errors)
-	var per_stack := _tuning_number(tuning, "fistMasteryDamageUpPerStack", errors)
-	var mastery_stacks := 0
-	var growth_before_snapshot: Array = []
-	var growth_enabled := _growth_ratios(context) != null
-	if growth_enabled:
-		var read := _read_growth_stacks(
-			ports, PermanentGrowthScript.FIST_MASTERY_ID, "hero",
-			PermanentGrowthScript.FIST_HERO_ID, errors,
-		)
-		if not errors.is_empty() or read.is_empty():
-			return CombatPortsScript.fail("fist mastery stack preflight failed%s" % _error_suffix(errors))
-		mastery_stacks = int(read["stacks"])
-		growth_before_snapshot = read["snapshot"]
 	var plan := PermanentGrowthScript.fist_growth_plan(
-		caster["fist_momentum"], mastery_stacks, per_stack, errors,
+		caster["fist_momentum"], 0, 0.0, errors,
 	)
 	if not errors.is_empty() or plan.is_empty():
 		return CombatPortsScript.fail("fist exclusive formula preflight failed%s" % _error_suffix(errors))
 	var raw := _fmt(StatsScript.team_average_atk(state, side)) * (
-		1.0 + float(plan["momentum_effects"]["damage_up_rate"]) + float(plan["mastery_damage_up_rate"])
+		1.0 + float(plan["momentum_effects"]["damage_up_rate"])
 	)
 	var all_damage_contexts := _prebuild_damage_contexts(
 		context, candidates, raw,
@@ -330,29 +292,12 @@ static func _fist_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 	var contexts_by_id := {}
 	for index in candidates.size():
 		contexts_by_id[candidates[index]["id"]] = all_damage_contexts[index]
-	var growth_preview: Variant = null
-	if growth_enabled:
-		growth_preview = _preview_growth_exact(
-			ports, growth_before_snapshot, plan["request"], errors,
-		)
-		if not errors.is_empty():
-			return CombatPortsScript.fail("fist mastery preview failed%s" % _error_suffix(errors))
-
-	var growth_committed := false
-	if growth_enabled:
-		var staged: Dictionary = ports.call_action(GrowthPortScript.ACTION_STAGE, {"requests": [plan["request"]]})
-		if not staged["ok"]:
-			return CombatPortsScript.fail("fist mastery stage failed (no combat state committed): %s" % staged["error"])
-		growth_committed = true
-		if staged["value"] != growth_preview:
-			return CombatPortsScript.fail("fist mastery stage disagrees with preview (growth committed; no combat state committed)")
-	# Match Web ordering: permanent growth commits before random target draws.
 	var rng: Variant = ports.service("combat_rng", errors)
 	var targets := _random_unique_from_pool(
 		candidates, int(plan["momentum_effects"]["target_count"]), rng, errors,
 	)
 	if not errors.is_empty() or targets.is_empty():
-		return _committed_failure("fist exclusive target RNG failed", growth_committed, errors)
+		return _committed_failure("fist exclusive target RNG failed", false, errors)
 	var dealt_total := 0.0
 	var hits := 0
 	for target: Dictionary in targets:
@@ -361,7 +306,7 @@ static func _fist_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 		})
 		if result.is_empty():
 			return _committed_failure(
-				"fist exclusive damage failed", growth_committed or hits > 0, errors,
+				"fist exclusive damage failed", hits > 0, errors,
 			)
 		hits += 1
 		dealt_total += float(result["dealt"])
@@ -375,9 +320,9 @@ static func _fist_exclusive(context: Dictionary, ports: Variant) -> Dictionary:
 		"hits": hits, "dealt_total": dealt_total,
 		"momentum_before": plan["momentum_effects"]["momentum"],
 		"momentum_after": caster["fist_momentum"],
-		"mastery_before_stacks": mastery_stacks,
-		"mastery_after_stacks": mastery_stacks + (1 if growth_enabled else 0),
-		"growth_committed": growth_committed,
+		"mastery_before_stacks": 0,
+		"mastery_after_stacks": 0,
+		"growth_committed": false,
 	})
 
 
@@ -390,20 +335,7 @@ static func _fist_ultimate(context: Dictionary, ports: Variant) -> Dictionary:
 	var candidates := TargetingRulesScript.lockable(state, opposing, errors)
 	if not errors.is_empty():
 		return CombatPortsScript.fail("fist ultimate target preflight failed%s" % _error_suffix(errors))
-	var tuning: Variant = ports.service("tuning", errors)
-	var per_stack := _tuning_number(tuning, "fistMasteryDamageUpPerStack", errors)
-	var mastery_stacks := 0
-	if _growth_ratios(context) != null:
-		var read := _read_growth_stacks(
-			ports, PermanentGrowthScript.FIST_MASTERY_ID, "hero",
-			PermanentGrowthScript.FIST_HERO_ID, errors,
-		)
-		if not errors.is_empty() or read.is_empty():
-			return CombatPortsScript.fail("fist ultimate mastery preflight failed%s" % _error_suffix(errors))
-		mastery_stacks = int(read["stacks"])
 	var momentum_effects := PermanentGrowthScript.fist_momentum_effects(caster["fist_momentum"], errors)
-	var mastery_rate := PermanentGrowthScript.fist_mastery_damage_up_rate(mastery_stacks, per_stack, errors)
-	var mastery_hits := PermanentGrowthScript.fist_mastery_ultimate_bonus_hits(mastery_stacks, errors)
 	if not errors.is_empty():
 		return CombatPortsScript.fail("fist ultimate formula preflight failed%s" % _error_suffix(errors))
 	if candidates.is_empty():
@@ -413,10 +345,10 @@ static func _fist_ultimate(context: Dictionary, ports: Variant) -> Dictionary:
 		return CombatPortsScript.ok({
 			"skill_id": "fist", "ultimate": true, "committed": false,
 			"no_target": true, "hits": 0, "kills": 0, "dealt_total": 0.0,
-			"momentum": caster["fist_momentum"], "mastery_stacks": mastery_stacks,
+			"momentum": caster["fist_momentum"], "mastery_stacks": 0,
 		})
 	var raw := _fmt(StatsScript.team_average_atk(state, side) * 0.6) * (
-		1.0 + float(momentum_effects["damage_up_rate"]) + mastery_rate
+		1.0 + float(momentum_effects["damage_up_rate"])
 	)
 	# Every possible retarget receives a prebuilt canonical B0 context before the
 	# first hit mutates HP. Later apply failures are the explicit sequential case.
@@ -436,7 +368,7 @@ static func _fist_ultimate(context: Dictionary, ports: Variant) -> Dictionary:
 	var current: Variant = _random_pick(candidates, rng, errors)
 	if not errors.is_empty() or current == null:
 		return CombatPortsScript.fail("fist ultimate initial target failed%s" % _error_suffix(errors))
-	var remaining: int = int(momentum_effects["ultimate_hits"]) + mastery_hits
+	var remaining: int = int(momentum_effects["ultimate_hits"])
 	var base_hits := remaining
 	var hits := 0
 	var kills := 0
@@ -471,7 +403,7 @@ static func _fist_ultimate(context: Dictionary, ports: Variant) -> Dictionary:
 		"skill_id": "fist", "ultimate": true, "committed": hits > 0,
 		"no_target": false, "base_hits": base_hits, "hits": hits, "kills": kills,
 		"dealt_total": dealt_total, "momentum": caster["fist_momentum"],
-		"mastery_stacks": mastery_stacks,
+		"mastery_stacks": 0,
 	})
 
 
@@ -561,21 +493,13 @@ static func _validate_context(
 		errors.append("ally hero effect caster must be deployed")
 		return false
 	if context.has("growth_piece_ratios") and context["growth_piece_ratios"] != null:
-		if effect["source_side"] != "ally":
-			errors.append("permanent Run growth is ally-only")
-			return false
-		if skill_id not in ["ascend", "fist"]:
-			errors.append("this hero effect does not own permanent Run growth")
-			return false
 		if not _validate_ratios(context["growth_piece_ratios"], errors):
 			return false
-		for action_id in [
-			GrowthPortScript.ACTION_PREVIEW, GrowthPortScript.ACTION_STAGE,
-			GrowthPortScript.ACTION_GET_STACKS, GrowthPortScript.ACTION_SNAPSHOT,
-		]:
-			if action_id not in ports.action_ids():
-				errors.append("active Run growth requires GrowthPort action: %s" % action_id)
-				return false
+	if context.has("target_unit_id"):
+		var target_id: Variant = context["target_unit_id"]
+		if not ((typeof(target_id) == TYPE_INT and target_id > 0) or (typeof(target_id) == TYPE_STRING and not String(target_id).is_empty())):
+			errors.append("hero effect context.target_unit_id must be a stable unit id")
+			return false
 	return true
 
 
@@ -608,6 +532,19 @@ static func _marshal_target(candidates: Array[Dictionary], preferred_slot: int) 
 		return int(left["slot"]) < int(right["slot"])
 	)
 	return sorted[0]
+
+
+static func _selected_marshal_target(
+	context: Dictionary,
+	candidates: Array[Dictionary],
+) -> Dictionary:
+	if not context.has("target_unit_id"):
+		return {}
+	var target_id: Variant = context["target_unit_id"]
+	for unit: Dictionary in candidates:
+		if unit["id"] == target_id:
+			return unit
+	return {}
 
 
 static func _random_unique_from_pool(
@@ -778,7 +715,7 @@ static func _closed_context(value: Variant, errors: Array[String]) -> bool:
 	if typeof(value) != TYPE_DICTIONARY:
 		errors.append("hero effect context must be a canonical Dictionary")
 		return false
-	if value.size() < CONTEXT_REQUIRED_KEYS.size() or value.size() > CONTEXT_REQUIRED_KEYS.size() + 1:
+	if value.size() < CONTEXT_REQUIRED_KEYS.size() or value.size() > CONTEXT_REQUIRED_KEYS.size() + CONTEXT_OPTIONAL_KEYS.size():
 		errors.append("hero effect context has a non-canonical field set")
 		return false
 	for key in CONTEXT_REQUIRED_KEYS:

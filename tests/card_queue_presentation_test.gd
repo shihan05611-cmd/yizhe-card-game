@@ -22,6 +22,12 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("seven hand nodes remain stable for the whole presentation queue", func() -> void:
 		_test_seven_card_stability(harness)
 	)
+	harness.run_test("ending a turn immediately clears every displayed card until next-turn bind", func() -> void:
+		_test_end_turn_clears_displayed_hand(harness)
+	)
+	harness.run_test("a rejected end turn retains the displayed hand", func() -> void:
+		_test_rejected_end_turn_retains_displayed_hand(harness)
+	)
 	harness.run_test("waiting queue accepts a rapid second drag, blocks end turn, and returns stale cards", func() -> void:
 		_test_waiting_queue(harness)
 	)
@@ -129,6 +135,46 @@ func _test_seven_card_stability(harness: TestHarness) -> void:
 	harness.assert_equal(screen.hand_view.card_count(), 7)
 	harness.assert_equal(_card_node_ids(screen.hand_view), ids_before)
 	screen.free()
+
+
+func _test_end_turn_clears_displayed_hand(harness: TestHarness) -> void:
+	var root: Variant = _root("m4-end-turn-discard-display")
+	root.presentation_queue.drain_for_test()
+	var old_hand: Array = root.controller.view_model()["hand"]
+	harness.assert_true(old_hand.size() > 0, "production battle starts with cards to discard")
+	if old_hand.is_empty():
+		root.free()
+		return
+	var ended: Variant = root.submit_end_turn()
+	harness.assert_not_null(ended)
+	harness.assert_true(ended.ok, ended.message)
+	harness.assert_true(root.presentation_queue.is_busy(), "round resolution stays presented after discard")
+	harness.assert_equal(root.battle_screen.hand_view.card_count(), 0, "all prior-turn cards leave the hand immediately")
+	harness.assert_equal(root.controller.view_model()["piles"]["hand"], root.controller.view_model()["hand"].size())
+	root.presentation_queue.drain_for_test()
+	harness.assert_equal(
+		root.battle_screen.hand_view.card_count(),
+		root.controller.view_model()["hand"].size(),
+		"only the authoritative next-turn hand appears after resolution presentation",
+	)
+	root.free()
+
+
+func _test_rejected_end_turn_retains_displayed_hand(harness: TestHarness) -> void:
+	var root: Variant = _root("m4-end-turn-rejection-display")
+	root.presentation_queue.drain_for_test()
+	var displayed_before: int = int(root.battle_screen.hand_view.card_count())
+	harness.assert_true(displayed_before > 0, "production battle starts with a visible hand")
+	if displayed_before == 0:
+		root.free()
+		return
+	root.controller._runtime.component("state")["phase"] = "round_resolution"
+	var rejected: Variant = root.submit_end_turn()
+	harness.assert_not_null(rejected)
+	harness.assert_false(rejected.ok)
+	harness.assert_equal(root.battle_screen.hand_view.card_count(), displayed_before)
+	harness.assert_false(root.presentation_queue.is_busy())
+	root.free()
 
 
 func _test_waiting_queue(harness: TestHarness) -> void:

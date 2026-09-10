@@ -11,6 +11,7 @@ const BattleCardSessionTestScript = preload("res://tests/battle_card_session_tes
 const PieceAttackTestScript = preload("res://tests/piece_attack_test.gd")
 const PieceReactionsTestScript = preload("res://tests/piece_reactions_test.gd")
 const EnemySkillAdapterTestScript = preload("res://tests/enemy_skill_adapter_test.gd")
+const CardResourceTargetTestScript = preload("res://tests/card_resource_target_test.gd")
 
 
 func _init() -> void:
@@ -31,5 +32,6 @@ func _run() -> void:
 	PieceAttackTestScript.new().run(harness)
 	PieceReactionsTestScript.new().run(harness)
 	EnemySkillAdapterTestScript.new().run(harness)
+	CardResourceTargetTestScript.new().run(harness)
 	harness.print_summary()
 	quit(0 if harness.failures == 0 else 1)

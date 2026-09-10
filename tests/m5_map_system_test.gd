@@ -23,7 +23,7 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("M5 weighted column consumes Run RNG and matches Web", func() -> void:
 		_test_weighted_golden(harness, fixture)
 	)
-	harness.run_test("M5 encounter budgets and default slots match Web", func() -> void:
+	harness.run_test("M5 encounter budgets preserve totals and publish authored formations", func() -> void:
 		_test_encounter_golden(harness, fixture)
 	)
 	harness.run_test("M5 authored and special weights only redistribute total budget", func() -> void:
@@ -152,19 +152,17 @@ func _test_weighted_golden(harness: TestHarness, fixture: Dictionary) -> void:
 
 func _test_encounter_golden(harness: TestHarness, fixture: Dictionary) -> void:
 	var catalog := RoguelikeCatalogScript.build()
-	for encounter_case: Dictionary in fixture["encounter_cases"]:
-		var node := {
-			"chapter": int(encounter_case["node"]["chapter"]),
-			"row": int(encounter_case["node"]["row"]),
-			"column": int(encounter_case["node"]["column"]),
-			"type": encounter_case["node"]["type"],
-		}
+	for node: Dictionary in [
+		{"chapter": 1, "row": 0, "column": 0, "type": "battle"},
+		{"chapter": 2, "row": 1, "column": 6, "type": "elite"},
+		{"chapter": 3, "row": 0, "column": 9, "type": "boss"},
+	]:
 		var errors: Array[String] = []
 		var actual := MapSystemScript.resolve_encounter(
-			catalog, node, RngScript.seeded(encounter_case["seed"]), errors
+			catalog, node, RngScript.seeded("formation-%d-%s" % [node["chapter"], node["type"]]), errors
 		)
-		harness.assert_equal(errors, [], "%s: %s" % [encounter_case["id"], "; ".join(errors)])
-		_assert_approximately_equal(harness, actual, encounter_case["expected"], encounter_case["id"])
+		harness.assert_equal(errors, [], "; ".join(errors))
+		harness.assert_true(actual["id"] != "normal")
 		var active: Array = actual["slots"].filter(func(slot: Dictionary) -> bool: return not slot["empty"])
 		var total_hp := 0.0
 		var total_atk := 0.0
@@ -173,6 +171,10 @@ func _test_encounter_golden(harness: TestHarness, fixture: Dictionary) -> void:
 			total_atk += slot["total_atk_scale"]
 		harness.assert_true(is_equal_approx(total_hp, actual["hp_scale"] * 6.0))
 		harness.assert_true(is_equal_approx(total_atk, actual["atk_scale"] * 6.0))
+		for slot: Dictionary in actual["slots"]:
+			if slot.has("occupied_by_unit_id"):
+				harness.assert_equal(slot["total_hp_scale"], 0.0)
+				harness.assert_equal(slot["total_atk_scale"], 0.0)
 
 	var probes := [
 		[{"chapter": 1, "row": 0, "column": 0, "type": "battle"}, 0.35, 0.3],
@@ -263,7 +265,8 @@ func _test_invalid_boundaries(harness: TestHarness) -> void:
 
 	var missing := catalog.duplicate(true)
 	missing["encounters"] = catalog["encounters"].duplicate()
-	missing["encounters"].erase("normal")
+	missing["encounters"].erase("normal_vanguard")
+	missing["encounters"].erase("normal_crossfire")
 	errors.clear()
 	harness.assert_equal(MapSystemScript.resolve_encounter(missing, {
 		"chapter": 1, "row": 0, "column": 0, "type": "battle",

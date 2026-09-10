@@ -1,7 +1,9 @@
 extends RefCounted
 
 const ContentCatalog = preload("res://data/catalogs/content_catalog.gd")
+const BuffDefinition = preload("res://data/definitions/buff_definition.gd")
 const BuffSystemScript = preload("res://systems/buffs/buff_system.gd")
+const BuffEffectsScript = preload("res://systems/buffs/buff_effects.gd")
 const BurnSettlementScript = preload("res://systems/buffs/burn.gd")
 const Contexts = preload("res://core/contexts.gd")
 const Damage = preload("res://core/damage.gd")
@@ -26,6 +28,12 @@ func run(harness: TestHarness) -> void:
 	)
 	harness.run_test("unit and side stack consume clear and events match Web order", func() -> void:
 		_test_stack_consume_clear(harness)
+	)
+	harness.run_test("enchantments obey capacity FIFO while ordinary Buffs ignore slots", func() -> void:
+		_test_enchantment_capacity(harness)
+	)
+	harness.run_test("battle damage and block callbacks apply authored Buff effects", func() -> void:
+		_test_effective_buff_values(harness)
 	)
 	harness.run_test("layer durations duplicate decay and synchronize state", func() -> void:
 		_test_layer_lifecycle(harness)
@@ -227,6 +235,82 @@ func _test_stack_consume_clear(harness: TestHarness) -> void:
 	system.apply_side("enemy", "pieceDamageUp")
 	harness.assert_true(system.reset_sides())
 	harness.assert_equal(setup["state"]["side_buffs"], {"ally": [], "enemy": []})
+
+
+func _test_enchantment_capacity(harness: TestHarness) -> void:
+	var third_enchantment := BuffDefinition.new(
+		"runeProbe", "测试符文", "unit", false, false, 1, 0,
+		false, false, "测试第三种附魔。", "battle", [], "enchantment",
+	)
+	var setup := _buff_harness({"runeProbe": third_enchantment})
+	var buffs: Variant = setup["system"]
+	var unit := _unit(1, "ally", {
+		"atk": 10.0, "base_block_rate": 0.1, "crit_rate": 0.05,
+		"general": false, "is_puppet": false,
+	})
+	harness.assert_equal(buffs.get_unit_enchantment_capacity(unit), 2)
+	harness.assert_true(buffs.apply_unit(unit, "general"))
+	unit["general"] = true
+	unit["max_hp"] += 80.0
+	unit["hp"] += 80.0
+	unit["base_block_rate"] += 0.1
+	unit["crit_rate"] += 0.05
+	harness.assert_true(buffs.apply_unit(unit, "enchant", 2))
+	harness.assert_equal(buffs.get_unit_enchantment_ids(unit), ["general", "enchant"])
+	harness.assert_true(buffs.apply_unit(unit, "general"), "same enchantment refreshes in place")
+	unit["atk"] += 3.0
+	unit["base_block_rate"] += 0.03
+	unit["crit_rate"] += 0.03
+	harness.assert_equal(buffs.get_unit_enchantment_ids(unit), ["general", "enchant"])
+	harness.assert_true(buffs.apply_unit(unit, "march", 1, 2))
+	harness.assert_equal(buffs.get_unit_enchantment_ids(unit), ["general", "enchant"], "ordinary Buffs do not consume enchantment slots")
+
+	harness.assert_true(buffs.apply_unit(unit, "runeProbe"), "a third enchantment evicts the oldest")
+	harness.assert_equal(buffs.get_unit_enchantment_ids(unit), ["enchant", "runeProbe"])
+	harness.assert_false(unit["general"])
+	harness.assert_equal(unit["max_hp"], 200.0)
+	harness.assert_equal(unit["hp"], 200.0)
+	harness.assert_equal(unit["atk"], 10.0)
+	harness.assert_true(is_equal_approx(unit["base_block_rate"], 0.1), "two General stacks revert first and doubled repeat block")
+	harness.assert_true(is_equal_approx(unit["crit_rate"], 0.05), "two General stacks revert first and doubled repeat crit")
+	harness.assert_equal(setup["events"].filter(func(event: Dictionary) -> bool: return event["type"] == "buff_evicted").size(), 1)
+
+	var puppet := _unit(2, "ally", {"is_puppet": true})
+	var errors: Array[String] = []
+	harness.assert_equal(buffs.get_unit_enchantment_capacity(puppet), 0)
+	harness.assert_false(buffs.apply_unit(puppet, "enchant", 1, null, errors))
+	harness.assert_true(not errors.is_empty())
+	harness.assert_true(buffs.set_unit_enchantment_capacity(puppet, 1))
+	harness.assert_true(buffs.apply_unit(puppet, "enchant"))
+
+
+func _test_effective_buff_values(harness: TestHarness) -> void:
+	var setup := _buff_harness()
+	var buffs: Variant = setup["system"]
+	var catalog := _catalog()
+	var attacker := _unit(1, "ally", {"echo_damage_bonus": 0.2})
+	var target := _unit(2, "enemy", {"base_block_rate": 0.1})
+	buffs.apply_side("enemy", "tempBlock")
+	harness.assert_true(is_equal_approx(
+		BuffEffectsScript.effective_block_rate(target, buffs, catalog["tuning"]), 0.25,
+	))
+	buffs.apply_side("ally", "pieceDamageUp")
+	buffs.apply_unit(attacker, "vexed")
+	buffs.apply_unit(target, "bloodShiftVulnerable")
+	var direct := {
+		"category": "direct", "dealer_type": "piece",
+		"effect": {"source_side": "ally"},
+	}
+	var multiplier := BuffEffectsScript.damage_multiplier(
+		target, direct, {"attacker_unit": attacker}, buffs, catalog["tuning"],
+	)
+	harness.assert_true(is_equal_approx(multiplier, 1.25 * 0.75 * 1.2 * 1.25))
+	var delayed := direct.duplicate(true)
+	delayed["category"] = "delayed"
+	harness.assert_equal(
+		BuffEffectsScript.damage_multiplier(target, delayed, {"attacker_unit": attacker}, buffs, catalog["tuning"]),
+		1.0,
+	)
 
 
 func _test_layer_lifecycle(harness: TestHarness) -> void:
@@ -483,13 +567,15 @@ func _test_burn_result_isolation(harness: TestHarness) -> void:
 	harness.assert_equal(callback_results[0]["damage_context"]["effect"]["source_id"], "callback-mutated")
 
 
-func _buff_harness() -> Dictionary:
+func _buff_harness(extra_catalog: Dictionary = {}) -> Dictionary:
 	var state := {"side_buffs": {"ally": [], "enemy": []}}
 	var events: Array = []
 	var errors: Array[String] = []
+	var definitions: Dictionary = _catalog()["buffs"]
+	definitions.merge(extra_catalog, true)
 	var system := BuffSystemScript.new({
 		"state": state,
-		"catalog": _catalog()["buffs"],
+		"catalog": definitions,
 		"on_event": func(type: String, payload: Dictionary) -> void:
 			events.append({"type": type, "payload": payload}),
 	}, errors)

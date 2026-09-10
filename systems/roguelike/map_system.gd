@@ -154,7 +154,18 @@ static func resolve_encounter(
 			"hpScale": 1.0,
 			"atkScale": 1.0,
 			"empty": false,
+			"occupiesSlots": [],
 		})
+		var occupied_slot_ids: Array = authored.get("occupiesSlots", [])
+		if occupied_slot_ids.is_empty():
+			occupied_slot_ids = [unit_id]
+		var occupied_by_unit_id: Variant = null
+		for anchor_id: Variant in authored_by_id:
+			var anchor: Dictionary = authored_by_id[anchor_id]
+			var anchor_occupies: Variant = anchor.get("occupiesSlots", [])
+			if typeof(anchor_occupies) == TYPE_ARRAY and unit_id in anchor_occupies and anchor_id != unit_id:
+				occupied_by_unit_id = anchor_id
+				break
 		var special: Variant = null
 		if authored["specialId"] != null:
 			if not catalog["enemy_specials"].has(authored["specialId"]):
@@ -176,7 +187,7 @@ static func resolve_encounter(
 			display_name = str(piece_class.get("name", ""))
 		if display_name.is_empty():
 			display_name = "敌兵"
-		slots.append({
+		var resolved_slot := {
 			"unit_id": unit_id,
 			"piece_class_id": authored["pieceClassId"],
 			"special_id": authored["specialId"],
@@ -188,7 +199,13 @@ static func resolve_encounter(
 			"total_hp_scale": 0.0,
 			"total_atk_scale": 0.0,
 			"empty": authored["empty"],
-		})
+		}
+		if occupied_by_unit_id != null:
+			resolved_slot["empty"] = true
+			resolved_slot["occupied_by_unit_id"] = occupied_by_unit_id
+		elif authored["specialId"] != null and occupied_slot_ids.size() > 1:
+			resolved_slot["occupied_slot_ids"] = occupied_slot_ids.duplicate()
+		slots.append(resolved_slot)
 	var active: Array = slots.filter(func(slot: Dictionary) -> bool: return not slot["empty"])
 	if active.is_empty():
 		errors.append("encounter %s must keep at least one active enemy slot" % encounter_id)

@@ -13,12 +13,17 @@ const HeroCardCatalogScript = preload("res://data/catalogs/hero_card_catalog.gd"
 
 const INITIAL_HERO_CHOICE_COUNT := 3
 const INITIAL_FREE_SKILL_COUNT := 2
+const INITIAL_PIECE_ACTION_COPIES := 2
+const INITIAL_PIECE_ACTION_SKILL_ID := "pieceAction"
+const UNOBTAINABLE_FREE_SKILL_IDS := ["basicDamage", INITIAL_PIECE_ACTION_SKILL_ID]
 const RECRUITMENT_OPTION_COUNT := 3
 const SHOP_SKILL_OPTION_COUNT := 3
 const SHOP_RELIC_OPTION_COUNT := 3
 const FORGE_RELIC_OPTION_COUNT := 3
 const REWARD_HEAL_RATIO := 0.35
-const PERMANENT_GROWTH_EXCLUSIVE_IDS := ["ascend", "burnEnchant", "fist"]
+## First-pass normal-battle relic offer probability. The relic choice is
+## independent from the normal card choice and never replaces it.
+const NORMAL_RELIC_REWARD_CHANCE := 0.30
 const BATTLE_NODE_TYPES := ["battle", "elite", "boss"]
 const NON_BATTLE_STATUS_BY_TYPE := {"forge": "forge", "shop": "shop", "event": "event"}
 const SHENTONG_EVOLUTION_RELIC_IDS := [
@@ -81,6 +86,7 @@ func _init(
 		typeof(run_random) != TYPE_OBJECT
 		or run_random == null
 		or not run_random.has_method("with_transaction")
+		or not run_random.has_method("next")
 		or not run_random.has_method("pick")
 		or not run_random.has_method("shuffle")
 	):
@@ -90,6 +96,9 @@ func _init(
 		if not RunContractScript.validate(run_state, state_errors):
 			_dependency_error = state_errors[0]
 		else:
+			# Legacy saves may still carry the retired field. Preserve its shape for
+			# serialization, while ensuring it cannot affect this Run.
+			run_state["permanent_buffs"] = []
 			_state = run_state
 			_catalogs = content_catalog
 			_random = run_random
@@ -184,6 +193,7 @@ static func restore_checkpoint(
 	normalized = _migrate_four_choice_checkpoint(normalized, content_catalog, errors)
 	if not errors.is_empty():
 		return null
+	normalized = _migrate_piece_action_option_snapshots(normalized)
 	if (
 		typeof(normalized["state"]) != TYPE_DICTIONARY
 		or normalized["state"].get("status") not in CHECKPOINT_STATUSES
@@ -252,6 +262,8 @@ func choose_starting_hero(hero_id: Variant, errors: Array[String] = []) -> bool:
 		candidate["hero_deployment_slots"] = {str(hero_id): 1}
 		_sync_roster_views(candidate)
 		candidate["free_skill_ids"] = shuffled.slice(0, INITIAL_FREE_SKILL_COUNT)
+		for _copy_index in INITIAL_PIECE_ACTION_COPIES:
+			candidate["free_skill_ids"].append(INITIAL_PIECE_ACTION_SKILL_ID)
 		candidate["map_nodes"] = map_nodes
 		candidate["status"] = "map"
 		return true
@@ -349,7 +361,7 @@ func add_free_skill_copy(skill_id: Variant, errors: Array[String] = []) -> bool:
 		if (
 			not candidate["active"]
 			or typeof(skill_id) != TYPE_STRING
-			or skill_id == "basicDamage"
+			or skill_id in UNOBTAINABLE_FREE_SKILL_IDS
 			or not _skills.has(skill_id)
 		):
 			return false
@@ -582,7 +594,9 @@ func _complete_battle(
 			):
 				return false
 			candidate["piece_slots"] = _deep_copy(progress_snapshot["piece_slots"])
-			candidate["permanent_buffs"] = _deep_copy(progress_snapshot["permanent_buffs"])
+			# Retain the field for checkpoint compatibility, but no longer carry
+			# battle growth across encounters.
+			candidate["permanent_buffs"] = []
 		var reward := _reward_scale(node, local_errors)
 		if reward.is_empty() or not _can_add_currency(candidate, reward["currency"], local_errors):
 			return false
@@ -658,11 +672,40 @@ func select_reward(option_id: Variant, errors: Array[String] = []) -> bool:
 			return false
 		if not _apply_reward_option(candidate, option, local_errors):
 			return false
+		if node["type"] == "battle":
+			_remove_normal_reward_group(candidate, _normal_reward_group(option))
+			if not candidate["reward_options"].is_empty():
+				return true
 		candidate["reward_pending"] = false
 		candidate["reward_options"] = []
 		_reward_option_authority.clear()
 		if option["type"] == "hero":
 			return _advance_after_node(candidate, node, local_errors)
+		return _finish_successful_node(candidate, node, local_errors)
+	, errors)
+
+
+func skip_normal_reward_group(group: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != "reward"
+			or not candidate["reward_pending"]
+			or group not in ["card", "relic"]
+		):
+			return false
+		var node := _current_node(candidate)
+		if node.is_empty() or node["type"] != "battle":
+			return false
+		if not candidate["reward_options"].any(func(option: Dictionary) -> bool:
+			return _normal_reward_group(option) == group
+		):
+			return false
+		_remove_normal_reward_group(candidate, group)
+		if not candidate["reward_options"].is_empty():
+			return true
+		candidate["reward_pending"] = false
+		_reward_option_authority.clear()
 		return _finish_successful_node(candidate, node, local_errors)
 	, errors)
 
@@ -763,7 +806,7 @@ func _draw_skill_options(
 ) -> Array:
 	var pool: Array = []
 	for skill_id: Variant in _roguelike_catalog["free_skills"]:
-		if skill_id != "basicDamage":
+		if skill_id not in UNOBTAINABLE_FREE_SKILL_IDS:
 			pool.append(_roguelike_catalog["free_skills"][skill_id])
 	var shuffled: Array = _random.shuffle(pool, errors)
 	if not errors.is_empty():
@@ -788,7 +831,7 @@ func _draw_card_options(
 ) -> Array:
 	var pool: Array = []
 	for skill_id: Variant in _roguelike_catalog["free_skills"]:
-		if skill_id == "basicDamage":
+		if skill_id in UNOBTAINABLE_FREE_SKILL_IDS:
 			continue
 		var skill: Dictionary = _roguelike_catalog["free_skills"][skill_id]
 		pool.append({
@@ -894,9 +937,13 @@ func _build_battle_rewards(
 	)
 	if not errors.is_empty():
 		return []
-	options.append_array(_draw_relic_options(
-		reward["relicCount"], "reward", "relic", 0, errors,
-	))
+	var relic_count: int = reward["relicCount"]
+	if _node["type"] == "battle":
+		var roll: Variant = _random.next(errors)
+		if not errors.is_empty():
+			return []
+		relic_count = 3 if float(roll) < NORMAL_RELIC_REWARD_CHANCE else 0
+	options.append_array(_draw_relic_options(relic_count, "reward", "relic", 0, errors))
 	if not errors.is_empty():
 		return []
 	if not options.is_empty():
@@ -910,6 +957,20 @@ func _build_battle_rewards(
 		"price": 0,
 		"purchased": false,
 	}]
+
+
+func _normal_reward_group(option: Dictionary) -> String:
+	return "relic" if option.get("type") == "relic" else "card"
+
+
+func _remove_normal_reward_group(candidate: Dictionary, group: String) -> void:
+	candidate["reward_options"] = candidate["reward_options"].filter(func(option: Dictionary) -> bool:
+		return _normal_reward_group(option) != group
+	)
+	for option_id: Variant in _reward_option_authority.keys().duplicate():
+		var option: Dictionary = _reward_option_authority[option_id]
+		if _normal_reward_group(option) == group:
+			_reward_option_authority.erase(option_id)
 
 
 func _reward_scale(node: Dictionary, errors: Array[String]) -> Dictionary:
@@ -1141,27 +1202,18 @@ func _is_recruitment_milestone(node: Dictionary) -> bool:
 
 func _draw_initial_hero_choices(errors: Array[String]) -> Array:
 	var candidates: Array = []
-	var growth_candidates: Array = []
 	for hero_id: Variant in _players:
 		var exclusive_id: String = _players[hero_id].exclusive_skill_id
 		if exclusive_id == "fate":
 			continue
 		candidates.append(hero_id)
-		if exclusive_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
-			growth_candidates.append(hero_id)
-	if candidates.size() < INITIAL_HERO_CHOICE_COUNT or growth_candidates.is_empty():
-		errors.append("Run hero catalog cannot provide three choices including permanent growth")
+	if candidates.size() < INITIAL_HERO_CHOICE_COUNT:
+		errors.append("Run hero catalog cannot provide three choices")
 		return []
-	var required_growth: Variant = _random.pick(growth_candidates, errors)
-	if not errors.is_empty() or required_growth == null:
-		return []
-	var others := candidates.filter(func(hero_id: Variant) -> bool: return hero_id != required_growth)
-	others = _random.shuffle(others, errors)
+	var shuffled: Array = _random.shuffle(candidates, errors)
 	if not errors.is_empty():
 		return []
-	var result: Array = [required_growth]
-	result.append_array(others.slice(0, INITIAL_HERO_CHOICE_COUNT - 1))
-	return _random.shuffle(result, errors)
+	return shuffled.slice(0, INITIAL_HERO_CHOICE_COUNT)
 
 
 func _atomic(command: Callable, errors: Array[String]) -> bool:
@@ -1324,15 +1376,10 @@ func _validate_initial_choices(state: Dictionary, errors: Array[String]) -> bool
 	if choices.size() != INITIAL_HERO_CHOICE_COUNT:
 		errors.append("active Run requires exactly three initial hero choices")
 		return false
-	var has_growth := false
 	for hero_id: Variant in choices:
 		if not _players.has(hero_id) or _players[hero_id].exclusive_skill_id == "fate":
 			errors.append("initial hero choices must be known non-fate heroes")
 			return false
-		has_growth = has_growth or _players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS
-	if not has_growth:
-		errors.append("initial hero choices must contain a permanent-growth hero")
-		return false
 	return true
 
 
@@ -1664,7 +1711,14 @@ func _validate_option(
 			var expected_price := 0 if option["type"] == "freeSkill" else _skill_price(state["chapter"])
 			return (
 				typeof(skill_id) == TYPE_STRING
-				and skill_id != "basicDamage"
+				and (
+					skill_id not in UNOBTAINABLE_FREE_SKILL_IDS
+					or (
+						skill_id == INITIAL_PIECE_ACTION_SKILL_ID
+						and option["type"] == "shopFreeSkill"
+						and option["purchased"]
+					)
+				)
 				and _skills.has(skill_id)
 				and option["id"] == "%s:skill:%s" % [prefix, skill_id]
 				and option["price"] == expected_price
@@ -1925,16 +1979,6 @@ static func _migrate_four_choice_checkpoint(
 					owned_initial.append(hero_id)
 			if not owned_initial.is_empty():
 				required[owned_initial[0]] = true
-		var retained_growth: Variant = null
-		for hero_id: Variant in owned_initial:
-			if players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
-				retained_growth = hero_id
-				break
-		for hero_id: Variant in choices:
-			if retained_growth == null and players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS:
-				retained_growth = hero_id
-		if retained_growth != null:
-			required[retained_growth] = true
 		var retained: Array = []
 		for hero_id: Variant in choices:
 			if required.has(hero_id):
@@ -1958,11 +2002,62 @@ static func _migrate_four_choice_checkpoint(
 	return migrated
 
 
+static func _migrate_piece_action_option_snapshots(checkpoint: Dictionary) -> Dictionary:
+	var migrated: Dictionary = checkpoint.duplicate(true)
+	var state: Variant = migrated.get("state")
+	if typeof(state) != TYPE_DICTIONARY:
+		return migrated
+	state["permanent_buffs"] = []
+	var reward: Dictionary = _remove_stale_piece_action_options(
+		state.get("reward_options"), migrated.get("reward_option_authority"), false,
+	)
+	var shop: Dictionary = _remove_stale_piece_action_options(
+		state.get("shop_options"), migrated.get("shop_option_authority"), true,
+	)
+	if not reward.is_empty():
+		state["reward_options"] = reward["options"]
+		migrated["reward_option_authority"] = reward["authority"]
+	if not shop.is_empty():
+		state["shop_options"] = shop["options"]
+		migrated["shop_option_authority"] = shop["authority"]
+	migrated["state"] = state
+	return migrated
+
+
+static func _remove_stale_piece_action_options(
+	raw_options: Variant, raw_authority: Variant, preserve_purchased_shop_history: bool,
+) -> Dictionary:
+	if typeof(raw_options) != TYPE_ARRAY or typeof(raw_authority) != TYPE_DICTIONARY:
+		return {}
+	var options: Array = raw_options
+	var authority: Dictionary = raw_authority
+	var retained: Array = []
+	var migrated_authority: Dictionary = authority.duplicate(true)
+	for raw_option: Variant in options:
+		if typeof(raw_option) != TYPE_DICTIONARY:
+			retained.append(raw_option)
+			continue
+		var option: Dictionary = raw_option
+		var option_id: Variant = option.get("id")
+		var is_piece_action_offer: bool = (
+			option.get("type") in ["freeSkill", "shopFreeSkill"]
+			and option.get("payload_id") == INITIAL_PIECE_ACTION_SKILL_ID
+			and typeof(option_id) == TYPE_STRING
+			and authority.get(option_id) == option
+		)
+		if not is_piece_action_offer or (
+			preserve_purchased_shop_history and option.get("purchased") == true
+		):
+			retained.append(option)
+			continue
+		migrated_authority.erase(option_id)
+	return {"options": retained, "authority": migrated_authority}
+
+
 static func _validate_legacy_four_initial_choices(
 	choices: Array, players: Dictionary, errors: Array[String]
 ) -> bool:
 	var seen := {}
-	var has_growth := false
 	for hero_id: Variant in choices:
 		if (
 			typeof(hero_id) != TYPE_INT
@@ -1973,10 +2068,6 @@ static func _validate_legacy_four_initial_choices(
 			errors.append("legacy four-choice checkpoint has invalid initial hero choices")
 			return false
 		seen[hero_id] = true
-		has_growth = has_growth or players[hero_id].exclusive_skill_id in PERMANENT_GROWTH_EXCLUSIVE_IDS
-	if not has_growth:
-		errors.append("legacy four-choice checkpoint must retain a permanent-growth hero")
-		return false
 	return true
 
 

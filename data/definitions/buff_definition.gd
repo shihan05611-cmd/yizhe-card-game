@@ -12,6 +12,8 @@ var decays_at_round_end := false
 var description := ""
 var persistence := "battle"
 var target_types: Array[String] = []
+var kind := "normal"
+var eviction_revert: Dictionary = {}
 
 
 func _init(
@@ -27,6 +29,8 @@ func _init(
 	definition_description: String,
 	definition_persistence: String = "battle",
 	definition_target_types: Array[String] = [],
+	definition_kind: String = "normal",
+	definition_eviction_revert: Dictionary = {},
 ) -> void:
 	id = definition_id
 	name = display_name
@@ -40,6 +44,8 @@ func _init(
 	description = definition_description
 	persistence = definition_persistence
 	target_types = definition_target_types.duplicate()
+	kind = definition_kind
+	eviction_revert = definition_eviction_revert.duplicate(true)
 
 
 func snapshot() -> Resource:
@@ -56,6 +62,8 @@ func snapshot() -> Resource:
 		description,
 		persistence,
 		target_types,
+		kind,
+		eviction_revert,
 	)
 
 
@@ -73,4 +81,6 @@ func to_source_dict() -> Dictionary:
 		"description": description,
 		"persistence": persistence,
 		"targetTypes": target_types.duplicate(),
+		"kind": kind,
+		"evictionRevert": eviction_revert.duplicate(true),
 	}

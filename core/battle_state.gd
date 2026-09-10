@@ -21,6 +21,7 @@ const UNIT_KEYS := [
 	"buffs", "is_puppet", "fixed_max_hp", "puppet_martyr", "disarm_turns",
 	"stealth_attack_ready", "special_id", "echo_damage_bonus", "hp_threshold_crossed",
 ]
+const OPTIONAL_UNIT_KEYS := ["enchantment_capacity"]
 const PLAYER_HERO_KEYS := [
 	"id", "name", "deployed", "ex_skill", "energy", "max_energy",
 	"base_crit_rate", "fist_momentum",
@@ -74,9 +75,6 @@ static func _validate_state(state: Variant, errors: Array[String]) -> bool:
 	for field in ["sp", "sp_max", "base_sp_max", "enemy_sp", "enemy_sp_max"]:
 		if not _non_negative_number(state[field], "state.%s" % field, errors):
 			return false
-	if float(state["sp"]) > float(state["sp_max"]):
-		errors.append("state.sp must not exceed state.sp_max")
-		return false
 	if float(state["enemy_sp"]) > float(state["enemy_sp_max"]):
 		errors.append("state.enemy_sp must not exceed state.enemy_sp_max")
 		return false
@@ -130,7 +128,7 @@ static func _validate_units(value: Variant, side: String, path: String, errors: 
 	for index in value.size():
 		var unit: Variant = value[index]
 		var unit_path := "%s[%d]" % [path, index]
-		if not _closed_dictionary(unit, unit_path, UNIT_KEYS, errors):
+		if not _unit_dictionary(unit, unit_path, errors):
 			return false
 		if not _stable_id(unit["id"], "%s.id" % unit_path, errors):
 			return false
@@ -173,6 +171,10 @@ static func _validate_units(value: Variant, side: String, path: String, errors: 
 		for field in ["extra_action_charges", "disarm_turns"]:
 			if not _non_negative_integer(unit[field], "%s.%s" % [unit_path, field], errors):
 				return false
+		if unit.has("enchantment_capacity") and not _non_negative_integer(
+			unit["enchantment_capacity"], "%s.enchantment_capacity" % unit_path, errors
+		):
+			return false
 		if unit["fixed_max_hp"] != null and not _positive_number(unit["fixed_max_hp"], "%s.fixed_max_hp" % unit_path, errors):
 			return false
 		if unit["special_id"] != null and not _non_empty_string(unit["special_id"], "%s.special_id" % unit_path, errors):
@@ -256,9 +258,6 @@ static func _validate_common_hero(
 
 static func _validate_fist_momentum(value: Variant, path: String, errors: Array[String]) -> bool:
 	if not _non_negative_integer(value, "%s.fist_momentum" % path, errors):
-		return false
-	if int(value) > 5:
-		errors.append("%s.fist_momentum must not exceed 5" % path)
 		return false
 	return true
 
@@ -357,6 +356,24 @@ static func _closed_dictionary(value: Variant, path: String, expected_keys: Arra
 			return false
 	for key: Variant in value:
 		if typeof(key) != TYPE_STRING or key not in expected_keys:
+			errors.append("%s contains an unknown field: %s" % [path, str(key)])
+			return false
+	return true
+
+
+static func _unit_dictionary(value: Variant, path: String, errors: Array[String]) -> bool:
+	if typeof(value) != TYPE_DICTIONARY:
+		errors.append("%s must be a canonical Dictionary" % path)
+		return false
+	if value.size() < UNIT_KEYS.size() or value.size() > UNIT_KEYS.size() + OPTIONAL_UNIT_KEYS.size():
+		errors.append("%s has a non-canonical field set" % path)
+		return false
+	for key in UNIT_KEYS:
+		if not value.has(key):
+			errors.append("%s.%s is required" % [path, key])
+			return false
+	for key: Variant in value:
+		if typeof(key) != TYPE_STRING or (key not in UNIT_KEYS and key not in OPTIONAL_UNIT_KEYS):
 			errors.append("%s contains an unknown field: %s" % [path, str(key)])
 			return false
 	return true

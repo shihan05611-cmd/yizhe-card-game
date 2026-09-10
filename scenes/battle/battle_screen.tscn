@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 [ext_resource type="Script" path="res://ui/battle/battle_screen.gd" id="script"]
 [ext_resource type="PackedScene" path="res://scenes/battle/battle_hud.tscn" id="hud"]
 [ext_resource type="PackedScene" path="res://scenes/battle/board_grid.tscn" id="board"]
@@ -9,6 +9,7 @@
 [ext_resource type="PackedScene" path="res://scenes/cards/hand_view.tscn" id="hand"]
 [ext_resource type="PackedScene" path="res://scenes/effects/skill_fx_player.tscn" id="fx"]
 [ext_resource type="Script" path="res://ui/art/arena_backdrop.gd" id="art"]
+[ext_resource type="Script" path="res://ui/art/card_target_overlay.gd" id="aim"]
 
 [node name="BattleScreen" type="Control"]
 layout_mode = 1
@@ -161,6 +162,16 @@ autowrap_mode = 2
 max_lines_visible = 2
 text_overrun_behavior = 3
 mouse_filter = 1
+
+[node name="CardTargetOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+z_index = 1100
+visible = false
+script = ExtResource("aim")
 
 [node name="ResultOverlay" parent="." instance=ExtResource("result")]
 unique_name_in_owner = true

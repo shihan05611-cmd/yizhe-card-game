@@ -361,7 +361,7 @@ func _formation_board(parent: Node, state: Dictionary) -> void:
 	var inventory := _vbox(columns, 14)
 	inventory.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_label(inventory, "备用兵种", 17, GOLD)
-	_label(inventory, "每种最多两名。拖到已部署弟子上，替换其兵种。", 14, MUTED, true)
+	_label(inventory, "每种最多两名。拖到已部署弈子上，替换其兵种。", 14, MUTED, true)
 	var stock := _vbox(inventory, 10)
 	for class_id: String in ["shield", "assassin", "crossbow", "banner"]:
 		var used := 0
@@ -373,7 +373,7 @@ func _formation_board(parent: Node, state: Dictionary) -> void:
 		token.custom_minimum_size.y = 42
 		token.configure(class_id, classes.get(class_id, {}), max(0, 2 - used))
 		stock.add_child(token)
-	_label(inventory, "拖动左侧弟子可以互换位置，也可以移到空位。", 14, MUTED, true)
+	_label(inventory, "拖动左侧弈子可以互换位置，也可以移到空位。", 14, MUTED, true)
 
 
 func _show_formation_dialog(state: Dictionary) -> void:
@@ -401,7 +401,7 @@ func _show_formation_dialog(state: Dictionary) -> void:
 	_spacer(heading, false)
 	_button(heading, "完成", _close_formation_dialog)
 	_formation_board(body, state)
-	_label(body, "调整即时保存 · 不增加弟子人数 · 换兵种保留生命比例", 12, MUTED)
+	_label(body, "调整即时保存 · 不增加弈子人数 · 换兵种保留生命比例", 12, MUTED)
 
 func _close_formation_dialog() -> void:
 	if is_instance_valid(_formation_layer):
@@ -506,14 +506,54 @@ func _map_page(parent: Node, state: Dictionary) -> void:
 func _reward_page(parent: Node, state: Dictionary) -> void:
 	var options: Array = state.get("reward_options",[])
 	var recruiting: bool = not options.is_empty() and options[0].type == "hero"
-	_label(parent, "新的同行者" if recruiting else "战利品 · 选择一项", 28)
-	_label(parent, "上阵新弈者会增加每回合抽牌，并带来新的专属技。" if recruiting else "奖励只能领取一次。选定后继续旅程。", 14, MUTED, true)
+	var normal_stage := normal_reward_stage(options) if _is_normal_reward(state) else ""
+	var reward_title := "战利品 · 选择一项"
+	var reward_tip := "奖励只能领取一次。选定后继续旅程。"
+	if normal_stage == "card":
+		reward_title = "战利品 · 卡牌三选一"
+		reward_tip = "先从三张卡牌中领取一张或跳过；完成后再查看遗物奖励。"
+	elif normal_stage == "relic":
+		reward_title = "战利品 · 遗物三选一"
+		reward_tip = "从三件遗物中领取一件或跳过；这是本场的第二份独立奖励。"
+	_label(parent, "新的同行者" if recruiting else reward_title, 28)
+	_label(parent, "上阵新弈者会增加每回合抽牌，并带来新的专属技。" if recruiting else reward_tip, 14, MUTED, true)
 	if recruiting:
 		_hero_choice_grid(parent, options.map(func(option: Dictionary) -> int: return int(option["payload_id"])), func(id: int) -> void:
 			command({"type": "recruit_hero", "hero_id": id})
 		)
 	else:
-		_options(parent, options, "select_reward")
+		if _is_normal_reward(state):
+			var stage := normal_reward_stage(options)
+			var stage_options: Array = options.filter(func(option: Dictionary) -> bool:
+				return (option.get("type") != "relic") == (stage == "card")
+			)
+			if stage == "card":
+				_label(parent, "卡牌三选一", 20, GOLD)
+				_options(parent, stage_options, "select_reward")
+				_button(parent, "跳过卡牌", func() -> void: command({"type": "skip_normal_reward_group", "group": "card"}))
+			elif stage == "relic":
+				_label(parent, "遗物三选一", 20, GOLD)
+				_options(parent, stage_options, "select_reward")
+				_button(parent, "跳过遗物", func() -> void: command({"type": "skip_normal_reward_group", "group": "relic"}))
+		else:
+			_options(parent, options, "select_reward")
+
+
+static func normal_reward_stage(options: Array) -> String:
+	for option: Variant in options:
+		if typeof(option) == TYPE_DICTIONARY and option.get("type") != "relic":
+			return "card"
+	for option: Variant in options:
+		if typeof(option) == TYPE_DICTIONARY and option.get("type") == "relic":
+			return "relic"
+	return ""
+
+
+func _is_normal_reward(state: Dictionary) -> bool:
+	for node: Dictionary in state.get("map_nodes", []):
+		if node.get("id") == state.get("current_node_id"):
+			return node.get("type") == "battle"
+	return false
 
 func _options(parent: Node, options: Array, action: String) -> void:
 	var scroll := ScrollContainer.new()
@@ -547,7 +587,7 @@ func _options(parent: Node, options: Array, action: String) -> void:
 			var card_id := str(option.get("payload_id", ""))
 			var exclusive_view := _exclusive_card_view(card_id)
 			var hero := _hero(int(exclusive_view.get("owner_hero_id", 0)))
-			_label(box, "%s · 专属副本 · %d SP" % [
+			_label(box, "%s · %d SP" % [
 				str(hero.get("name", "上阵弈者")), int(exclusive_view.get("base_sp_cost", 0)),
 			], 15, GOLD, true)
 			_label(box, str(option.get("description", "")), 14, MUTED, true)

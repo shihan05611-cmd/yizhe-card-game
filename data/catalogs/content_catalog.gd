@@ -48,7 +48,7 @@ const EXPECTED_IDS := {
 		"burnBonusChance", "burnBaseDuration", "burn01DurationBonus",
 		"counterDamageRatio", "superCounterDamageRatio", "counterAuraBlockBonus",
 		"tempBlockBonus", "pieceDamageUpRatio", "pursuitDamageRatio",
-		"enchantStackCap", "skipRecover", "roundRecover", "ascendCost",
+		"enchantStackCap", "skipRecover", "roundRecover", "enemyRoundRecover", "ascendCost",
 		"ascendAtkBonus", "ascendHpBonus", "ascendBlockBonus",
 		"ascendRepeatAtkBonus", "ascendRepeatBlockBonus", "ascendRepeatCritBonus",
 		"ascendRepeatMissingHpHealRatio", "fistMasteryDamageUpPerStack",
@@ -64,9 +64,9 @@ const EXPECTED_IDS := {
 		"hpThresholdCrossed",
 	],
 	"buffs": [
-		"burn", "enchant", "knightChivalry", "march", "stealth", "vexed",
-		"breakMarked", "tempBlock", "pieceDamageUp", "bloodShiftVulnerable",
-		"bloodShiftGuard", "flameLeech", "breakFormation", "pursuit",
+		"burn", "enchant", "general", "knightChivalry", "march", "stealth", "vexed",
+		"breakMarked", "tempBlock", "pieceDamageUp", "flameCastCount",
+		"bloodShiftVulnerable", "bloodShiftGuard", "flameLeech", "breakFormation", "pursuit", "nextRoundAction",
 		"flamePractice", "flameEnchant", "marshalPromotion", "fistMastery",
 	],
 	"players": [1, 2, 3, 4, 5, 6, 7, 8, 9],
@@ -75,7 +75,7 @@ const EXPECTED_IDS := {
 	"skills": [
 		"burnStackBase", "burnDetonate", "executeStrike", "pieceAction",
 		"pieceBlock", "pieceDamageUp", "pieceHealAll", "smallHeal", "markBurn",
-		"bloodShift", "basicDamage",
+		"bloodShift", "spSurge", "tacticalDraw", "basicDamage",
 	],
 	"abilities": [
 		"burn01", "fate", "ascend", "counterAura", "burnEnchant", "fist",
@@ -92,7 +92,11 @@ const EXPECTED_IDS := {
 		"fieldBandage", "graveChange", "lastEmber",
 	],
 	"chapters": [1, 2, 3],
-	"encounters": ["normal", "elite_core", "boss_core"],
+	"encounters": [
+		"boss_devourer", "boss_echo", "elite_devourer", "elite_echo",
+		"normal_ambush", "normal_crossfire", "normal_phalanx", "normal_pressure",
+		"normal_siege", "normal_vanguard", "normal", "elite_core", "boss_core",
+	],
 	"shentongs": ["charge", "assault", "sacrifice"],
 	"node_types": ["battle", "elite", "boss", "forge", "shop", "event"],
 }
@@ -441,6 +445,7 @@ static func _trimmed_references_from_groups(groups: Dictionary) -> Dictionary:
 		expected_enemy_specials[id] = {
 			"id": special.id,
 			"name": special.name,
+			"gridCells": special.grid_cells,
 			"pieceClassId": special.piece_class_id,
 			"hpScale": special.hp_scale,
 			"atkScale": special.atk_scale,

@@ -21,6 +21,12 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("M6 purchased shop authority cannot charge twice after restore", func() -> void:
 		_test_shop_purchase(harness)
 	)
+	harness.run_test("M6 migrates stale pieceAction offers without accepting forged authority", func() -> void:
+		_test_piece_action_checkpoint_authority(harness)
+	)
+	harness.run_test("M6 restores legacy normal relic rewards without discarding their authority", func() -> void:
+		_test_legacy_normal_relic_reward_restore(harness)
+	)
 	harness.run_test("M6 save store replaces valid JSON and rejects corrupt files", func() -> void:
 		_test_save_store(harness)
 	)
@@ -114,6 +120,92 @@ func _test_shop_purchase(harness: TestHarness) -> void:
 	var after: Dictionary = restored.snapshot(errors)
 	harness.assert_equal(after["currency"], paid_currency)
 	harness.assert_equal(after["free_skill_ids"].count(option["payload_id"]), paid_skill_count)
+
+
+func _test_piece_action_checkpoint_authority(harness: TestHarness) -> void:
+	var fixture: Dictionary = _started_fixture("m6-piece-action-authority", harness)
+	var errors: Array[String] = []
+	var state: Dictionary = fixture["state"]
+	harness.assert_equal(state["free_skill_ids"].count("pieceAction"), 2)
+	var map_checkpoint: Dictionary = _json_roundtrip(fixture["lifecycle"].export_checkpoint(errors))
+	var restored: Variant = _restore_lifecycle(map_checkpoint, fixture["random"], fixture["catalogs"], harness)
+	harness.assert_not_null(restored, "owned initial pieceAction copies remain save-compatible")
+
+	_reach_activity(fixture, ["shop"], harness, errors)
+	var checkpoint: Dictionary = _json_roundtrip(fixture["lifecycle"].export_checkpoint(errors))
+	var option: Dictionary = checkpoint["state"]["shop_options"].filter(func(value: Dictionary) -> bool:
+		return value["type"] == "shopFreeSkill"
+	)[0]
+	var original_option_id: String = option["id"]
+	option["payload_id"] = "pieceAction"
+	option["id"] = "shop:skill:pieceAction"
+	checkpoint["shop_option_authority"].erase(original_option_id)
+	checkpoint["shop_option_authority"][option["id"]] = option.duplicate(true)
+	var restored_shop: Variant = _restore_lifecycle_raw(checkpoint, fixture["random"], fixture["catalogs"], errors)
+	harness.assert_not_null(restored_shop, "; ".join(errors))
+	harness.assert_false(restored_shop.snapshot(errors)["shop_options"].any(func(value: Dictionary) -> bool:
+		return value["payload_id"] == "pieceAction"
+	))
+
+	var purchased_history: Dictionary = _json_roundtrip(fixture["lifecycle"].export_checkpoint(errors))
+	var history_option: Dictionary = purchased_history["state"]["shop_options"].filter(func(value: Dictionary) -> bool:
+		return value["type"] == "shopFreeSkill"
+	)[0]
+	var history_option_id: String = history_option["id"]
+	history_option["payload_id"] = "pieceAction"
+	history_option["id"] = "shop:skill:pieceAction"
+	history_option["purchased"] = true
+	purchased_history["state"]["free_skill_ids"].append("pieceAction")
+	purchased_history["shop_option_authority"].erase(history_option_id)
+	purchased_history["shop_option_authority"][history_option["id"]] = history_option.duplicate(true)
+	var restored_history: Variant = _restore_lifecycle_raw(
+		purchased_history, fixture["random"], fixture["catalogs"], errors,
+	)
+	harness.assert_not_null(restored_history, "; ".join(errors))
+	harness.assert_true(restored_history.snapshot(errors)["shop_options"].any(func(value: Dictionary) -> bool:
+		return value["id"] == "shop:skill:pieceAction" and value["purchased"]
+	))
+	harness.assert_false(restored_history.buy_shop_option("shop:skill:pieceAction", errors))
+
+	var forged: Dictionary = _json_roundtrip(fixture["lifecycle"].export_checkpoint(errors))
+	var forged_option: Dictionary = forged["state"]["shop_options"].filter(func(value: Dictionary) -> bool:
+		return value["type"] == "shopFreeSkill"
+	)[0]
+	forged_option["payload_id"] = "pieceAction"
+	forged_option["id"] = "shop:skill:pieceAction"
+	harness.assert_equal(_restore_lifecycle_raw(forged, fixture["random"], fixture["catalogs"], errors), null)
+	harness.assert_contains("; ".join(errors), "authoritative snapshots")
+
+
+func _test_legacy_normal_relic_reward_restore(harness: TestHarness) -> void:
+	var restored: Variant = null
+	var relic_option: Dictionary = {}
+	for index in 32:
+		var fixture: Dictionary = _started_fixture("m6-legacy-normal-relic-%d" % index, harness)
+		var errors: Array[String] = []
+		_reach_activity(fixture, ["battle"], harness, errors)
+		if fixture["state"].get("status") != "fighting":
+			continue
+		harness.assert_true(fixture["lifecycle"].complete_current_battle(true, errors), "; ".join(errors))
+		var relics: Array = fixture["state"]["reward_options"].filter(func(option: Dictionary) -> bool:
+			return option["type"] == "relic"
+		)
+		if relics.is_empty():
+			continue
+		var checkpoint: Dictionary = _json_roundtrip(fixture["lifecycle"].export_checkpoint(errors))
+		checkpoint["version"] = 2
+		restored = _restore_lifecycle_raw(checkpoint, fixture["random"], fixture["catalogs"], errors)
+		relic_option = relics[0]
+		break
+	harness.assert_not_null(restored, "a legacy normal relic reward checkpoint should restore")
+	if restored == null:
+		return
+	var restored_options: Array = restored.snapshot()["reward_options"]
+	harness.assert_true(restored_options.any(func(option: Dictionary) -> bool:
+		return option["id"] == relic_option["id"] and option["type"] == "relic"
+	))
+	var errors: Array[String] = []
+	harness.assert_true(restored.select_reward(relic_option["id"], errors), "; ".join(errors))
 
 
 func _test_save_store(harness: TestHarness) -> void:

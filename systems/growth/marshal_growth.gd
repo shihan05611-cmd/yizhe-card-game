@@ -13,9 +13,9 @@ const DEFAULTS := {
 	"first_max_hp": 80.0,
 	"first_block": 0.1,
 	"first_crit": 0.05,
-	"repeat_atk": 1.5,
-	"repeat_block": 0.015,
-	"repeat_crit": 0.015,
+	"repeat_atk": 3.0,
+	"repeat_block": 0.03,
+	"repeat_crit": 0.03,
 	"repeat_missing_hp_heal_ratio": 0.05,
 }
 

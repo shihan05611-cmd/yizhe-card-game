@@ -5,6 +5,7 @@ const DamageFloatScene = preload("res://scenes/effects/damage_float.tscn")
 const HealFloatScene = preload("res://scenes/effects/heal_float.tscn")
 const CombatMarkerScene = preload("res://scenes/effects/combat_marker.tscn")
 const PendingCardQueueScript = preload("res://ui/cards/pending_card_queue.gd")
+const DevourPulseScene = preload("res://scenes/effects/devour_pulse.tscn")
 const LOG_DRAWER_DURATION := 0.18
 const LOG_DRAWER_WIDTH := 300.0
 
@@ -28,6 +29,7 @@ signal play_card_requested(command: Dictionary)
 @onready var fatal_overlay: Node = %FatalOverlay
 @onready var ally_side_buffs: Label = %AllySideBuffs
 @onready var enemy_side_buffs: Label = %EnemySideBuffs
+@onready var target_overlay: Control = %CardTargetOverlay
 
 var _pending: Dictionary = {}
 var _input_locked := false
@@ -41,6 +43,10 @@ var _log_tween: Tween
 var _presented_piece_actions: Dictionary = {}
 var _pending_card_queue: Control
 var _side_buffs := {"ally": [], "enemy": []}
+var _aim_card_id := ""
+var _aim_origin := Vector2.ZERO
+var _aim_pointer := Vector2.ZERO
+var _aim_armed := false
 
 
 func _ready() -> void:
@@ -52,8 +58,14 @@ func _ready() -> void:
 	battle_hud.combat_log_toggle_requested.connect(toggle_combat_log)
 	result_overlay.restart_requested.connect(func() -> void: restart_requested.emit())
 	fatal_overlay.restart_requested.connect(func() -> void: restart_requested.emit())
+	hand_view.target_drag_updated.connect(_show_card_target_preview)
+	hand_view.target_drag_ended.connect(_clear_card_target_preview)
 	hand_view.play_card_requested.connect(func(command: Dictionary) -> void:
-		play_card_requested.emit(command)
+		var targeted_command := _resolve_card_target(command)
+		if targeted_command.is_empty():
+			show_pending_card_notice("请将卡牌拖到一个有效目标上")
+			return
+		play_card_requested.emit(targeted_command)
 	)
 	_pending_card_queue = PendingCardQueueScript.new()
 	_pending_card_queue.cancel_requested.connect(func(instance_id: String) -> void:
@@ -74,6 +86,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		toggle_combat_log()
 		get_viewport().set_input_as_handled()
+
+
+func _process(_delta: float) -> void:
+	if _aim_card_id.is_empty():
+		return
+	var card: Variant = hand_view.card_for_instance(_aim_card_id)
+	if card == null or not card.is_dragging() or _terminal_locked:
+		_clear_card_target_preview()
+		return
+	_show_card_target_preview(card.view_model(), _aim_origin, _aim_pointer, _aim_armed)
+
+
+func _clear_card_target_preview() -> void:
+	_aim_card_id = ""
+	target_overlay.clear_aim()
 
 
 func bind_view_model(vm: Dictionary) -> void:
@@ -170,6 +197,14 @@ func refresh_visible_hand_availability(authoritative_hand: Array) -> void:
 	hand_view.refresh_visible_availability(authoritative_hand)
 
 
+## Clears the previous turn's visual hand immediately after its authoritative
+## discard has committed. The coordinator binds the next-turn ViewModel after
+## the round presentation batch, which creates the new hand in its canonical
+## order.
+func clear_hand_for_turn_settlement() -> void:
+	hand_view.clear_for_turn_settlement()
+
+
 func take_card_release_pose(instance_id: String) -> Dictionary:
 	var pose: Dictionary = hand_view.take_release_pose(instance_id)
 	if not pose.is_empty(): return pose
@@ -238,7 +273,13 @@ func present_event(event: Dictionary, duration: float) -> void:
 	var target_slot: Variant = _slot_for_target(target)
 	_pulse_source(event, duration)
 	_maybe_start_source_fx(event)
-	if kind == "damage" and event_id == "damage_applied":
+	if event_id == "relicTriggered":
+		battle_hud.present_relic_trigger(str(payload.get("relic_id", "")), duration)
+	elif event_id == "resourceChanged" and payload.get("resource") == "sp":
+		battle_hud.present_sp_change(float(payload.get("new_sp", 0)), duration)
+	elif event_id == "enemySpecialTriggered" and payload.get("special_id") == "devourer":
+		_present_devour_trigger(payload, duration)
+	elif kind == "damage" and event_id == "damage_applied":
 		if target_slot != null:
 			target_slot.present_hp_change(
 				float(payload.get("old_hp", target_slot.hp_bar.value)),
@@ -289,6 +330,30 @@ func finish_event(_event: Dictionary) -> void:
 	pass
 
 
+func _present_devour_trigger(payload: Dictionary, duration: float) -> void:
+	var actor: Dictionary = payload.get("actor", {})
+	var actor_slot: Variant = _slot_for_target({"kind": "unit", "side": "enemy", "unit_id": actor.get("id"), "slot": actor.get("slot")})
+	var resource_position: Vector2 = battle_hud.sp_orb.get_global_rect().get_center()
+	var amount := float(payload.get("amount", 0))
+	if payload.get("kind") == "sp_drain":
+		battle_hud.present_sp_change(float(payload.get("new_sp", 0)), duration, amount)
+	elif payload.get("kind") == "energy_drain":
+		battle_hud.present_sp_change(float(payload.get("new_sp", 0)), duration)
+		var hero: Dictionary = payload.get("target", {})
+		var hero_item: Variant = ally_heroes.item_for_hero(hero.get("hero_id"))
+		if hero_item != null:
+			hero_item.present_energy_value(float(hero.get("new_energy", 0)))
+			resource_position = hero_item.get_global_rect().get_center()
+		var drain_text := "吞噬 −%d 能量" % roundi(amount) if amount > 0 else "吞噬 · 能量已空"
+		_spawn_marker(drain_text, {"visual_target": {"kind": "hero", "side": "ally", "hero_id": hero.get("hero_id")}}, duration)
+	if actor_slot == null: return
+	actor_slot.present_pulse(duration, Color(1.05, 0.65, 1.5))
+	var pulse: Control = DevourPulseScene.instantiate()
+	feedback_layer.add_child(pulse)
+	pulse.play(resource_position, actor_slot.chess_art.get_global_rect().get_center(), maxf(0.12, duration))
+	_spawn_marker("吞噬", {"visual_target": {"kind": "unit", "side": "enemy", "unit_id": actor.get("id"), "slot": actor.get("slot")}}, duration)
+
+
 func clear_transient_feedback() -> void:
 	for child: Node in feedback_layer.get_children():
 		feedback_layer.remove_child(child)
@@ -303,6 +368,7 @@ func reset_presentation() -> void:
 	fx_player.clear_visual_effect()
 	clear_transient_feedback()
 	_presented_piece_actions.clear()
+	battle_hud.reset_trigger_feedback()
 	for board: Node in [ally_board, enemy_board]:
 		for slot: Node in board.slot_nodes():
 			slot.reset_visuals()
@@ -382,6 +448,99 @@ func _slot_for_target(target: Dictionary) -> Variant:
 	if side == "enemy":
 		return enemy_board.slot_for_target(target)
 	return null
+
+
+func _resolve_card_target(command: Dictionary) -> Dictionary:
+	var result := command.duplicate(true)
+	var release_position: Variant = result.get("release_position")
+	result.erase("release_position")
+	var card_vm := _hand_card_vm(str(result.get("instance_id", "")))
+	if card_vm.is_empty():
+		return {}
+	var targeting: Dictionary = card_vm.get("targeting", {})
+	var mode := str(targeting.get("mode", "automatic"))
+	if mode == "automatic":
+		return result
+	var target: Variant = null
+	if release_position is Vector2:
+		target = _unit_target_at(release_position, targeting)
+	if target != null:
+		result["target"] = target
+		return result
+	return result if mode == "optional" else {}
+
+
+func _show_card_target_preview(card_vm: Dictionary, origin: Vector2, pointer: Vector2, armed: bool) -> void:
+	if _terminal_locked:
+		target_overlay.clear_aim()
+		return
+	_aim_card_id = str(card_vm.get("instance_id", ""))
+	_aim_origin = origin
+	_aim_pointer = pointer
+	_aim_armed = armed
+	var targeting: Dictionary = card_vm.get("targeting", {})
+	var side := str(targeting.get("side", ""))
+	var rects: Array[Rect2] = []
+	var picked := Rect2()
+	var target_name := ""
+	for unit: Dictionary in _pending.get("teams", {}).get(side, {}).get("slots", []):
+		if not _unit_matches_target_filter(unit, str(targeting.get("filter", ""))):
+			continue
+		var slot: Variant = _slot_for_target({"kind": "unit", "side": side, "unit_id": unit.get("id"), "slot": unit.get("slot")})
+		if slot == null:
+			continue
+		var rect: Rect2 = slot.get_global_rect()
+		rects.append(rect)
+		if armed and rect.has_point(pointer):
+			picked = rect
+			target_name = "%s · %d号位" % [slot.class_label.text, int(unit.get("slot", 0))]
+	var hostile := side == "enemy"
+	var message := "拖到敌方弈子 · 松手空放将退回" if hostile else "拖到我方弈子 · 松手空放将退回"
+	if str(targeting.get("mode", "")) == "optional":
+		message = "拖到弈子指定 · 空白处松手自动选择"
+	if not armed:
+		message = "向上拖出手牌区，再指定目标"
+	elif picked.has_area():
+		var action := "斩杀" if hostile else ("预备行动" if card_vm.get("source_skill_id") == "pieceAction" else "施放")
+		message = "松手%s：%s" % [action, target_name]
+	target_overlay.show_aim(origin, picked.get_center() if picked.has_area() else pointer, rects, picked, message, hostile)
+
+
+func _hand_card_vm(instance_id: String) -> Dictionary:
+	for card: Dictionary in _pending.get("hand", []):
+		if str(card.get("instance_id", "")) == instance_id:
+			return card
+	return {}
+
+
+func _unit_target_at(pointer_global: Vector2, targeting: Dictionary) -> Variant:
+	var side := str(targeting.get("side", ""))
+	var board: Node = ally_board if side == "ally" else enemy_board
+	var slots: Array = _pending.get("teams", {}).get(side, {}).get("slots", [])
+	for unit: Dictionary in slots:
+		if not _unit_matches_target_filter(unit, str(targeting.get("filter", ""))):
+			continue
+		var slot_node: Variant = board.slot_for_target({
+			"kind": "unit", "side": side,
+			"unit_id": unit.get("id"), "slot": unit.get("slot"),
+		})
+		if slot_node != null and slot_node.get_global_rect().has_point(pointer_global):
+			return {"side": side, "unit_id": unit["id"], "slot": int(unit["slot"])}
+	return null
+
+
+static func _unit_matches_target_filter(unit: Dictionary, filter_id: String) -> bool:
+	if not bool(unit.get("occupied", true)) or not bool(unit.get("alive", false)):
+		return false
+	if filter_id == "living_non_puppet":
+		return not bool(unit.get("is_puppet", false))
+	if filter_id == "living_puppet_without_enchant_slot":
+		return bool(unit.get("is_puppet", false)) and int(unit.get("enchantment_capacity", 0)) <= 0
+	if filter_id == "lockable":
+		for buff: Dictionary in unit.get("buffs", []):
+			if str(buff.get("id", "")) == "stealth":
+				return false
+	return true
 
 
 func _control_for_target(target: Dictionary) -> Control:

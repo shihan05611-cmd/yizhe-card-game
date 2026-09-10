@@ -128,15 +128,17 @@ func _test_state_fail_closed(harness: TestHarness) -> void:
 	var wrong_side := _state()
 	wrong_side["enemies"][0]["side"] = "ally"
 	invalid_cases.append(wrong_side)
-	var invalid_enemy_fist := _state()
-	invalid_enemy_fist["enemy_heroes"][0]["fist_momentum"] = 6
-	invalid_cases.append(invalid_enemy_fist)
 	for candidate in invalid_cases:
 		var before_text := str(candidate)
 		var errors: Array[String] = []
 		harness.assert_equal(BattleStateScript.create(candidate, errors), {})
 		harness.assert_true(not errors.is_empty())
 		harness.assert_equal(str(candidate), before_text, "validation must not mutate rejected state")
+	var unlimited_fist := _state()
+	unlimited_fist["enemy_heroes"][0]["fist_momentum"] = 99
+	var unlimited_errors: Array[String] = []
+	harness.assert_true(BattleStateScript.validate(unlimited_fist, unlimited_errors))
+	harness.assert_equal(unlimited_errors, [])
 
 
 func _test_enemy_skill_pool_contract(harness: TestHarness) -> void:

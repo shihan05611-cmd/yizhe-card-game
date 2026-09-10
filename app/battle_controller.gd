@@ -8,6 +8,7 @@ const Result = preload("res://core/card_runtime_result.gd")
 const RequestScript = preload("res://systems/cards/card_play_request.gd")
 const HeroCardCatalog = preload("res://data/catalogs/hero_card_catalog.gd")
 const BattleOutcomeScript = preload("res://systems/combat/battle_outcome.gd")
+const TargetingRulesScript = preload("res://systems/targeting/targeting_rules.gd")
 
 const SPEED_OPTIONS := [1.0, 2.0, 3.0, 4.0]
 
@@ -159,10 +160,7 @@ func play_card(instance_id: String) -> RefCounted:
 	var instance: Variant = _hand_manager.card_instance_snapshot(instance_id)
 	if instance == null:
 		return _failure(Result.CARD_NOT_FOUND, "unknown card instance: %s" % instance_id)
-	_stream.begin_batch("play_card")
-	var result: Variant = _hand_manager.play_card(_request_for(instance))
-	_finish_command(result)
-	return result
+	return _play_card_request(_request_for(instance, _automatic_target_for_card(instance)))
 
 
 func play_card_guarded(command: Variant) -> RefCounted:
@@ -188,7 +186,17 @@ func play_card_guarded(command: Variant) -> RefCounted:
 		return _failure(Result.INVALID_ARGUMENT, "stale source_skill_id guard for: %s" % instance_id)
 	if command["owner_hero_id"] != definition.owner_hero_id:
 		return _failure(Result.INVALID_ARGUMENT, "stale owner_hero_id guard for: %s" % instance_id)
-	return play_card(instance_id)
+	var request_owner: Variant = (
+		null if definition.card_category == "free" else command["owner_hero_id"]
+	)
+	return _play_card_request(_request_for(instance, command.get("target"), request_owner))
+
+
+func _play_card_request(request: Variant) -> RefCounted:
+	_stream.begin_batch("play_card")
+	var result: Variant = _hand_manager.play_card(request)
+	_finish_command(result)
+	return result
 
 
 func end_player_turn() -> RefCounted:
@@ -280,8 +288,8 @@ func _card_view(instance_id: String) -> Dictionary:
 		"description": display["description"],
 		"category": definition.card_category,
 		"owner_hero_id": definition.owner_hero_id,
-		"base_cost": definition.base_sp_cost,
-		"effective_cost": instance.effective_sp_cost(),
+		"base_cost": int(availability.get("base_cost", definition.base_sp_cost)),
+		"effective_cost": int(availability.get("effective_cost", instance.effective_sp_cost())),
 		"actual_cost": availability.get("actual_cost"),
 		"play_destination": definition.card_play_destination,
 		"end_of_turn_destination": definition.card_end_of_turn_destination,
@@ -289,6 +297,7 @@ func _card_view(instance_id: String) -> Dictionary:
 		"playable": bool(availability.get("playable", false)),
 		"unavailable_code": str(availability.get("unavailable_code", "")),
 		"unavailable_reason": str(availability.get("reason", "")),
+		"targeting": _card_targeting_view(definition),
 	}
 
 
@@ -304,12 +313,57 @@ func _card_display(definition: Variant) -> Dictionary:
 	return {"name": ability.name, "description": ability.tip}
 
 
-func _request_for(instance: Variant) -> RefCounted:
+func _request_for(
+	instance: Variant,
+	target: Variant = null,
+	owner_hero_id: Variant = null,
+) -> RefCounted:
 	return RequestScript.new(
 		instance.instance_id,
 		instance.definition.id,
 		instance.source_skill_id,
+		owner_hero_id,
+		target,
 	)
+
+
+func _card_targeting_view(definition: Variant) -> Dictionary:
+	var source_id := str(definition.source_skill_id)
+	if source_id == "executeStrike":
+		return {"mode": "required", "side": "enemy", "filter": "lockable"}
+	if source_id == "pieceAction":
+		return {"mode": "required", "side": "ally", "filter": "living"}
+	if source_id == "ascend":
+		var has_general: bool = _runtime.component("state")["allies"].any(
+			func(unit: Dictionary) -> bool: return unit["alive"] and unit["general"]
+		)
+		return {
+			"mode": "automatic" if has_general else "required",
+			"side": "ally", "filter": "living_non_puppet",
+		}
+	if source_id == "puppetAttunement":
+		return {"mode": "optional", "side": "ally", "filter": "living_puppet_without_enchant_slot"}
+	return {"mode": "automatic", "side": "", "filter": ""}
+
+
+func _automatic_target_for_card(instance: Variant) -> Variant:
+	var targeting := _card_targeting_view(instance.definition)
+	if targeting["mode"] != "required":
+		return null
+	var state: Dictionary = _runtime.component("state")
+	var target: Variant = null
+	if instance.source_skill_id == "executeStrike":
+		target = TargetingRulesScript.lowest_current_hp_lockable(state, "enemy")
+	elif instance.source_skill_id == "pieceAction":
+		target = TargetingRulesScript.highest_atk_alive(state, "ally")
+	elif instance.source_skill_id == "ascend":
+		for unit: Dictionary in state["allies"]:
+			if unit["alive"] and not unit["is_puppet"]:
+				target = unit
+				break
+	if target == null:
+		return null
+	return {"side": target["side"], "unit_id": target["id"], "slot": target["slot"]}
 
 
 func _command_gate() -> Variant:
@@ -353,6 +407,14 @@ func _team_view(units: Array, side_buffs: Array = []) -> Dictionary:
 		var occupied := not _vacant_ally_slots.has(slot) if ally else float(unit["max_hp"]) > 0.0
 		var slot_view := unit.duplicate(true)
 		slot_view["occupied"] = occupied
+		var special: Variant = _catalogs.get("enemy_specials", {}).get(unit.get("special_id"))
+		if special != null and occupied:
+			var occupied_slots: Array[int] = []
+			for offset in int(special.grid_cells):
+				if slot + offset <= 6:
+					occupied_slots.append(slot + offset)
+			slot_view["occupied_slot_ids"] = occupied_slots
+			slot_view["special_name"] = special.name
 		slots.append(slot_view)
 		if not occupied:
 			continue
@@ -373,8 +435,8 @@ func _team_view(units: Array, side_buffs: Array = []) -> Dictionary:
 func _hero_views_with_status(
 	heroes: Array,
 	player_side: bool,
-	growth_by_id: Dictionary,
-	status_context: Dictionary,
+	_growth_by_id: Dictionary,
+	_status_context: Dictionary,
 ) -> Array[Dictionary]:
 	var values: Array[Dictionary] = []
 	for hero: Dictionary in heroes:
@@ -383,9 +445,7 @@ func _hero_views_with_status(
 		var value := hero.duplicate(true)
 		value["side"] = "ally" if player_side else "enemy"
 		value["energy_percent"] = float(hero["energy"]) / float(hero["max_energy"])
-		value["permanent_growth"] = growth_by_id.get(int(hero.get("id", 0)), {}).duplicate(true)
-		value["ally_puppet_martyr_active"] = bool(status_context.get("ally_puppet_martyr_active", false))
-		value["flame_investment_used"] = bool(status_context.get("flame_investment_used", false))
+		value["ally_puppet_martyr_active"] = bool(_status_context.get("ally_puppet_martyr_active", false))
 		value["statuses"] = _hero_status_entries(value, _catalogs.get("buffs", {}))
 		value["status_lines"] = _status_entry_lines(value["statuses"])
 		values.append(value)
@@ -393,51 +453,20 @@ func _hero_views_with_status(
 
 
 func _hero_growth_by_id() -> Dictionary:
-	var result := {}
-	var growth_port: Variant = _runtime.component("growth_port")
-	if growth_port == null:
-		return result
-	var errors: Array[String] = []
-	var entries: Array = growth_port.snapshot(errors)
-	if not errors.is_empty():
-		return result
-	for entry: Dictionary in entries:
-		var target: Dictionary = entry.get("target", {})
-		if str(target.get("type", "")) != "hero":
-			continue
-		var hero_id := int(target.get("id", 0))
-		if hero_id <= 0:
-			continue
-		if not result.has(hero_id):
-			result[hero_id] = {}
-		result[hero_id][str(entry.get("id", ""))] = int(entry.get("stacks", 0))
-	return result
+	return {}
 
 
 static func _hero_status_lines(hero: Dictionary) -> Array[String]:
 	return _status_entry_lines(_hero_status_entries(hero))
 
 
-static func _hero_status_entries(hero: Dictionary, buff_catalog: Dictionary = {}) -> Array[Dictionary]:
+static func _hero_status_entries(hero: Dictionary, _buff_catalog: Dictionary = {}) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	var hero_id := int(hero.get("id", 0))
 	var is_fist_hero := hero_id == 6 or str(hero.get("ex_skill", "")) == "fist"
-	var momentum := clampi(int(hero.get("fist_momentum", 0)), 0, 5)
+	var momentum := maxi(0, int(hero.get("fist_momentum", 0)))
 	if is_fist_hero and momentum > 0:
-		entries.append({"id":"fistMomentum", "name":"拳势", "stacks":momentum, "kind":"buff", "description":"战内拳势，上限5层；提升拳系伤害、暴击率及攻击目标数。"})
-	var growth: Dictionary = hero.get("permanent_growth", {})
-	var short_names := {"flamePractice":"炎华", "fistMastery":"拳意"}
-	var fallback_descriptions := {"flamePractice":"本轮Run中的永久投资次数。", "fistMastery":"每层拳系伤害+5%；每5层使大招基础段数+1。"}
-	for id: String in growth:
-		var stacks := int(growth[id])
-		if stacks <= 0:
-			continue
-		var definition: Variant = buff_catalog.get(id)
-		var name: String = str(short_names.get(id, definition.name if definition != null else id))
-		var description: String = definition.description if definition != null else str(fallback_descriptions.get(id, "永久成长效果。"))
-		entries.append({"id":id, "name":name, "stacks":stacks, "kind":"permanent", "description":description})
-	if hero_id == 5 and bool(hero.get("flame_investment_used", false)):
-		entries.append({"id":"flameInvestmentUsed", "name":"引火已用", "stacks":1, "kind":"cooldown", "description":"本场已完成永久投资，下一场战斗恢复。"})
+		entries.append({"id":"fistMomentum", "name":"拳势", "stacks":momentum, "kind":"buff", "description":"战内拳势无上限；前5层沿用原成长，之后每层提供5%拳系增伤。"})
 	if hero_id == 8 and str(hero.get("side", "")) == "ally" and bool(hero.get("ally_puppet_martyr_active", false)):
 		entries.append({"id":"puppetMartyr", "name":"殉道", "stacks":1, "kind":"buff", "description":"本场已启用傀儡殉道。"})
 	return entries

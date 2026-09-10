@@ -14,12 +14,13 @@ const TuningValueDefinition = preload("res://data/definitions/tuning_value_defin
 const SKILL_IDS := [
 	"burnStackBase", "burnDetonate", "executeStrike", "pieceAction",
 	"pieceBlock", "pieceDamageUp", "pieceHealAll", "smallHeal", "markBurn",
-	"bloodShift", "basicDamage",
+	"bloodShift", "spSurge", "tacticalDraw", "basicDamage",
 ]
-const CONTEXT_KEYS := [
+const CONTEXT_REQUIRED_KEYS := [
 	"state", "caster_side", "caster_id", "caster_name",
 	"caster_base_crit_rate", "source_effect",
 ]
+const CONTEXT_OPTIONAL_KEYS := ["target_unit_id"]
 const EFFECT_CONTEXT_KEYS := [
 	"source_type", "source_id", "source_name", "source_side", "source_actor_id",
 	"counts_as_skill_cast", "spent_skill_points", "free_cast",
@@ -31,6 +32,7 @@ const TEMP_BLOCK_ID := "tempBlock"
 const PIECE_DAMAGE_UP_ID := "pieceDamageUp"
 const BLOOD_SHIFT_VULNERABLE_ID := "bloodShiftVulnerable"
 const BLOOD_SHIFT_GUARD_ID := "bloodShiftGuard"
+const NEXT_ROUND_ACTION_ID := "nextRoundAction"
 
 
 static func handler_map() -> Dictionary:
@@ -55,6 +57,10 @@ static func handler_map() -> Dictionary:
 			return _execute("markBurn", context, ports),
 		_effect_id("bloodShift"): func(context: Dictionary, ports: Variant) -> Dictionary:
 			return _execute("bloodShift", context, ports),
+		_effect_id("spSurge"): func(context: Dictionary, ports: Variant) -> Dictionary:
+			return _execute("spSurge", context, ports),
+		_effect_id("tacticalDraw"): func(context: Dictionary, ports: Variant) -> Dictionary:
+			return _execute("tacticalDraw", context, ports),
 		_effect_id("basicDamage"): func(context: Dictionary, ports: Variant) -> Dictionary:
 			return _execute("basicDamage", context, ports),
 	}
@@ -102,6 +108,10 @@ static func _execute(skill_id: String, context: Dictionary, ports: Variant) -> D
 			return _mark_burn(context, ports)
 		"bloodShift":
 			return _blood_shift(context, ports)
+		"spSurge":
+			return _sp_surge(context, ports)
+		"tacticalDraw":
+			return _tactical_draw(context, ports)
 		"basicDamage":
 			return _basic_damage(context, ports)
 	return CombatPortsScript.fail("unknown free skill id: %s" % skill_id)
@@ -119,9 +129,15 @@ static func _is_usable_validated(skill_id: String, context: Dictionary, errors: 
 		"executeStrike":
 			return (
 				TargetingRulesScript.highest_atk_alive(state, friendly_side, errors) != null
-				and TargetingRulesScript.lowest_current_hp_lockable(state, opposing_side, errors) != null
+				and _selected_lockable_target(context, opposing_side, errors) != null
 			)
-		"pieceAction", "bloodShift":
+		"spSurge", "tacticalDraw":
+			return true
+		"pieceAction":
+			if friendly_side == "ally":
+				return _selected_alive_friendly(context, friendly_side, errors) != null
+			return not TargetingRulesScript.alive(state, friendly_side, errors).is_empty()
+		"bloodShift":
 			return not TargetingRulesScript.alive(state, friendly_side, errors).is_empty()
 		"pieceHealAll", "smallHeal":
 			for unit: Dictionary in TargetingRulesScript.alive(state, friendly_side, errors):
@@ -227,8 +243,8 @@ static func _execute_strike_plan(context: Dictionary) -> Dictionary:
 	var attacker: Variant = TargetingRulesScript.highest_atk_alive(
 		context["state"], context["caster_side"], errors,
 	)
-	var target: Variant = TargetingRulesScript.lowest_current_hp_lockable(
-		context["state"], _other_side(context["caster_side"]), errors,
+	var target: Variant = _selected_lockable_target(
+		context, _other_side(context["caster_side"]), errors,
 	)
 	if attacker == null or target == null:
 		return CombatPortsScript.fail("free skill executeStrike is unusable")
@@ -253,7 +269,65 @@ static func _execute_strike_plan(context: Dictionary) -> Dictionary:
 	})
 
 
+static func _sp_surge(context: Dictionary, ports: Variant) -> Dictionary:
+	var resource_key := "sp" if context["caster_side"] == "ally" else "enemy_sp"
+	context["state"][resource_key] = float(context["state"][resource_key]) + 2.0
+	var logged := _log(context, ports, "回气：回复2技能点。")
+	if not logged["ok"]:
+		return _after_commit_failure("spSurge log failed", logged, true)
+	return CombatPortsScript.ok({
+		"skill_id": "spSurge", "committed": true, "sp_gained": 2,
+	})
+
+
+static func _tactical_draw(context: Dictionary, ports: Variant) -> Dictionary:
+	var logged := _log(context, ports, "筹策：抽2张牌。")
+	if not logged["ok"]:
+		return _after_commit_failure("tacticalDraw log failed", logged, false)
+	return CombatPortsScript.ok({
+		"skill_id": "tacticalDraw", "committed": false, "draw_count": 2,
+	})
+
+
+static func _selected_lockable_target(
+	context: Dictionary,
+	target_side: String,
+	errors: Array[String],
+) -> Variant:
+	var selected_id: Variant = context.get("target_unit_id")
+	if selected_id == null:
+		return TargetingRulesScript.lowest_current_hp_lockable(
+			context["state"], target_side, errors,
+		)
+	for target: Dictionary in TargetingRulesScript.lockable(context["state"], target_side, errors):
+		if target["id"] == selected_id:
+			return target
+	return null
+
+
 static func _piece_action(context: Dictionary, ports: Variant) -> Dictionary:
+	if context["caster_side"] == "ally":
+		var errors: Array[String] = []
+		var target: Variant = _selected_alive_friendly(context, "ally", errors)
+		if target == null:
+			return CombatPortsScript.fail("player pieceAction requires an explicit living allied unit target%s" % _error_suffix(errors))
+		var buffs: Variant = ports.service("buffs", errors)
+		if (
+			not errors.is_empty()
+			or buffs.definition_for(NEXT_ROUND_ACTION_ID, "unit", errors) == null
+			or not buffs.apply_unit(target, NEXT_ROUND_ACTION_ID, 1, 2, errors)
+		):
+			return CombatPortsScript.fail("pieceAction next-round Buff failed%s" % _error_suffix(errors))
+		var logged := _log(context, ports, "令指定弈子在下回合获得额外行动。")
+		if not logged["ok"]:
+			return _after_commit_failure("pieceAction log failed", logged, true)
+		return CombatPortsScript.ok({
+			"skill_id": "pieceAction", "committed": true,
+			"target_id": target["id"], "buff_id": NEXT_ROUND_ACTION_ID,
+			"buff_stacks": buffs.get_unit_stacks(target, NEXT_ROUND_ACTION_ID),
+			"activation_round": int(context["state"]["round"]) + 1,
+		})
+	# Enemy skill policy retains the original immediate-charge behavior.
 	var target: Variant = TargetingRulesScript.highest_atk_alive(
 		context["state"], context["caster_side"],
 	)
@@ -267,6 +341,20 @@ static func _piece_action(context: Dictionary, ports: Variant) -> Dictionary:
 		"skill_id": "pieceAction", "committed": true,
 		"target_id": target["id"], "extra_action_charges": target["extra_action_charges"],
 	})
+
+
+static func _selected_alive_friendly(
+	context: Dictionary,
+	target_side: String,
+	errors: Array[String],
+) -> Variant:
+	var selected_id: Variant = context.get("target_unit_id")
+	if selected_id == null:
+		return null
+	for target: Dictionary in TargetingRulesScript.alive(context["state"], target_side, errors):
+		if target["id"] == selected_id:
+			return target
+	return null
 
 
 static func _side_buff(
@@ -464,7 +552,13 @@ static func _validate_context(
 	ports: Variant,
 	errors: Array[String],
 ) -> bool:
-	if not _closed_dictionary(context, CONTEXT_KEYS, "free skill context", errors):
+	if not _dictionary_with_optional_keys(
+		context, CONTEXT_REQUIRED_KEYS, CONTEXT_OPTIONAL_KEYS,
+		"free skill context", errors,
+	):
+		return false
+	if context.has("target_unit_id") and context["target_unit_id"] != null and not _stable_id(context["target_unit_id"]):
+		errors.append("free skill context.target_unit_id must be a stable id")
 		return false
 	if (
 		typeof(ports) != TYPE_OBJECT
@@ -536,6 +630,27 @@ static func _closed_dictionary(
 	for key: Variant in value:
 		if typeof(key) != TYPE_STRING or key not in keys:
 			errors.append("%s contains an unknown field" % label)
+			return false
+	return true
+
+
+static func _dictionary_with_optional_keys(
+	value: Variant,
+	required_keys: Array,
+	optional_keys: Array,
+	label: String,
+	errors: Array[String],
+) -> bool:
+	if typeof(value) != TYPE_DICTIONARY:
+		errors.append("%s must have a canonical closed shape" % label)
+		return false
+	for key in required_keys:
+		if not value.has(key):
+			errors.append("%s.%s is required" % [label, key])
+			return false
+	for key: Variant in value:
+		if typeof(key) != TYPE_STRING or (key not in required_keys and key not in optional_keys):
+			errors.append("%s must have a canonical closed shape; it contains an unknown field" % label)
 			return false
 	return true
 

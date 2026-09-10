@@ -95,6 +95,8 @@ static func _source_ids() -> Array[String]:
 		"smallHeal",
 		"markBurn",
 		"bloodShift",
+		"spSurge",
+		"tacticalDraw",
 		"basicDamage",
 	]
 
@@ -103,13 +105,15 @@ static func _source_definitions() -> Array:
 	return [
 		Skill.new("burnStackBase", "基础叠层", "消耗1技能点。敌方全体100%施加1层灼烧；每个单位有概率额外+1层。", "free_skill.burnStackBase.condition", "free_skill.burnStackBase.targeting", "free_skill.burnStackBase.effect", 1),
 		Skill.new("burnDetonate", "灼烧引爆", "消耗2技能点。引爆灼烧层数最高敌人：每层造成固定伤害并清空其灼烧；若引爆击杀，则将原灼烧层平均分给其余敌人。", "free_skill.burnDetonate.condition", "free_skill.burnDetonate.targeting", "free_skill.burnDetonate.effect", 2),
-		Skill.new("executeStrike", "斩杀", "消耗2技能点。令我方攻击力最高的棋子立即攻击敌方血量最低棋子，造成150%直接伤害；若击杀，回复1点技能点。", "free_skill.executeStrike.condition", "free_skill.executeStrike.targeting", "free_skill.executeStrike.effect", 2),
-		Skill.new("pieceAction", "棋子行动", "消耗1技能点。使指定我方棋子在下次行动时额外行动一次。", "free_skill.pieceAction.condition", "free_skill.pieceAction.targeting", "free_skill.pieceAction.effect", 1),
+		Skill.new("executeStrike", "斩杀", "消耗2技能点。指定一个可锁定敌方目标，由我方攻击力最高的棋子立即造成150%直接伤害；若击杀，回复1点技能点。", "free_skill.executeStrike.condition", "free_skill.executeStrike.targeting", "free_skill.executeStrike.effect", 2),
+		Skill.new("pieceAction", "棋子行动", "消耗1技能点。指定我方弈子获得下回合额外行动1次（普通Buff，可叠加）。", "free_skill.pieceAction.condition", "free_skill.pieceAction.targeting", "free_skill.pieceAction.effect", 1),
 		Skill.new("pieceBlock", "棋子格挡", "消耗1技能点。全体我方棋子获得15%临时格挡率，持续1回合。", "free_skill.pieceBlock.condition", "free_skill.pieceBlock.targeting", "free_skill.pieceBlock.effect", 1),
-		Skill.new("pieceDamageUp", "棋子增伤", "消耗1技能点。全体我方棋子直接伤害+30%，持续1回合。", "free_skill.pieceDamageUp.condition", "free_skill.pieceDamageUp.targeting", "free_skill.pieceDamageUp.effect", 1),
+		Skill.new("pieceDamageUp", "棋子增伤", "消耗1技能点。全体我方棋子直接伤害+25%，持续1回合。", "free_skill.pieceDamageUp.condition", "free_skill.pieceDamageUp.targeting", "free_skill.pieceDamageUp.effect", 1),
 		Skill.new("pieceHealAll", "棋子回血", "消耗1技能点。为我方全体棋子回复5%生命上限。", "free_skill.pieceHealAll.condition", "free_skill.pieceHealAll.targeting", "free_skill.pieceHealAll.effect", 1),
 		Skill.new("smallHeal", "小回血", "消耗0技能点。为我方当前血量最低棋子回复5%生命上限。", "free_skill.smallHeal.condition", "free_skill.smallHeal.targeting", "free_skill.smallHeal.effect", 0),
 		Skill.new("markBurn", "灼痕标记", "消耗0技能点。对敌方灼烧层数最高单位施加1层灼烧。", "free_skill.markBurn.condition", "free_skill.markBurn.targeting", "free_skill.markBurn.effect", 0),
 		Skill.new("bloodShift", "血移", "我方血量最高棋子额外受伤，其他棋子获得免伤。", "free_skill.bloodShift.condition", "free_skill.bloodShift.targeting", "free_skill.bloodShift.effect", 1),
+		Skill.new("spSurge", "回气", "消耗1技能点，本场消耗。回复2技能点；回复可以在本回合超过技能点上限。", "free_skill.spSurge.condition", "free_skill.spSurge.targeting", "free_skill.spSurge.effect", 1),
+		Skill.new("tacticalDraw", "筹策", "消耗1技能点，本场消耗。抽2张牌。", "free_skill.tacticalDraw.condition", "free_skill.tacticalDraw.targeting", "free_skill.tacticalDraw.effect", 1),
 		Skill.new("basicDamage", "基础伤害", "对敌方单体造成 200% 伤害。", "free_skill.basicDamage.condition", "free_skill.basicDamage.targeting", "free_skill.basicDamage.effect", 1),
 	]

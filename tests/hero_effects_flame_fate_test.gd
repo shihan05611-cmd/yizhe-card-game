@@ -51,7 +51,7 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("burnEnchant battle mode follows Web eligibility and application sets", func() -> void:
 		_test_ex_burn_enchant_battle(harness)
 	)
-	harness.run_test("burnEnchant Run growth previews and stages once through GrowthPort", func() -> void:
+	harness.run_test("burnEnchant repeats in battle and never writes permanent growth", func() -> void:
 		_test_ex_burn_enchant_growth(harness)
 	)
 	harness.run_test("burn01 ultimate uses six-slot average burn stacks and canonical damage context", func() -> void:
@@ -179,7 +179,7 @@ func _test_ex_burn_enchant_battle(harness: TestHarness) -> void:
 		_kill(_unit(fixture["state"], side, 4))
 		var result := _execute(fixture)
 		harness.assert_true(result["ok"], str(result))
-		harness.assert_equal(fixture["buffs"].get_unit_stacks(puppet, "enchant"), 1, "Web applies to alive puppets")
+		harness.assert_equal(fixture["buffs"].get_unit_stacks(puppet, "enchant"), 0, "puppets reject enchantments until attuned")
 		harness.assert_equal(fixture["buffs"].get_unit_stacks(capped, "enchant"), 5)
 		harness.assert_equal(fixture["buffs"].get_unit_stacks(_unit(fixture["state"], side, 3), "enchant"), 1)
 		harness.assert_equal(fixture["buffs"].get_unit_stacks(_unit(fixture["state"], side, 4), "enchant"), 0)
@@ -199,24 +199,20 @@ func _test_ex_burn_enchant_growth(harness: TestHarness) -> void:
 	var run_state := {"permanent_buffs": []}
 	var fixture := _fixture("ally", "burnEnchant", false, 0, run_state)
 	fixture["context"]["growth_piece_ratios"] = {1: 1.0, 2: 0.0, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0}
-	_unit(fixture["state"], "ally", 3)["is_puppet"] = true
-	var result := _execute(fixture)
-	harness.assert_true(result["ok"], str(result))
-	harness.assert_equal(result["value"]["mode"], "run_growth")
-	harness.assert_equal(result["value"]["base_cost"], 2)
-	harness.assert_equal(result["value"]["eligible_slots"], [1, 4, 5, 6])
-	harness.assert_true(fixture["state"]["battle_growth_flags"]["flame_investment_used"])
-	harness.assert_equal(run_state["permanent_buffs"].size(), 5)
-	harness.assert_equal(run_state["permanent_buffs"][0], {
-		"id": "flamePractice", "target": {"type": "hero", "id": 5}, "stacks": 1,
-	})
-	var after := run_state.duplicate(true)
-	harness.assert_false(_execute(fixture)["ok"])
-	harness.assert_equal(run_state, after)
-
-	var enemy_run := _fixture("enemy", "burnEnchant", false, 0, {"permanent_buffs": []})
-	enemy_run["context"]["growth_piece_ratios"] = {1: 1.0}
-	harness.assert_false(_execute(enemy_run)["ok"])
+	var puppet := _unit(fixture["state"], "ally", 3)
+	puppet["is_puppet"] = true
+	var errors: Array[String] = []
+	harness.assert_true(fixture["buffs"].set_unit_enchantment_capacity(puppet, 1, errors))
+	for expected_count in range(1, 6):
+		var result := _execute(fixture)
+		harness.assert_true(result["ok"], str(result))
+		harness.assert_equal(result["value"]["mode"], "battle")
+		harness.assert_equal(result["value"]["cast_count"], expected_count)
+		harness.assert_equal(fixture["buffs"].get_side_stacks("ally", "flameCastCount"), expected_count)
+	harness.assert_equal(fixture["buffs"].get_unit_stacks(puppet, "enchant"), 5, "attuned puppet receives repeated enchantment")
+	harness.assert_equal(run_state["permanent_buffs"], [], "legacy Run growth state is never written")
+	harness.assert_false(fixture["state"]["battle_growth_flags"]["flame_investment_used"])
+	harness.assert_equal(fixture["actions"], [], "no GrowthPort action is called")
 
 
 func _test_ult_burn01(harness: TestHarness) -> void:
@@ -316,14 +312,13 @@ func _test_failure_semantics(harness: TestHarness) -> void:
 	harness.assert_equal(buff_fail["buffs"].get_unit_stacks(_unit(buff_fail["state"], "ally", 2), "enchant"), 0)
 
 	var run_state := {"permanent_buffs": []}
-	var growth_fail := _fixture("ally", "burnEnchant", false, 0, run_state, false, false, true)
-	growth_fail["context"]["growth_piece_ratios"] = {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0}
-	result = _execute(growth_fail)
-	harness.assert_false(result["ok"])
+	var ignored_growth_failure := _fixture("ally", "burnEnchant", false, 0, run_state, false, false, true)
+	ignored_growth_failure["context"]["growth_piece_ratios"] = {1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0}
+	result = _execute(ignored_growth_failure)
+	harness.assert_true(result["ok"], str(result))
 	harness.assert_equal(run_state["permanent_buffs"], [])
-	harness.assert_false(growth_fail["state"]["battle_growth_flags"]["flame_investment_used"])
-	var action_ids: Array = growth_fail["actions"].map(func(entry: Dictionary) -> Variant: return entry["id"])
-	harness.assert_equal(action_ids, [GrowthPortScript.ACTION_GET_STACKS, GrowthPortScript.ACTION_PREVIEW, GrowthPortScript.ACTION_STAGE])
+	harness.assert_equal(ignored_growth_failure["buffs"].get_side_stacks("ally", "flameCastCount"), 1)
+	harness.assert_equal(ignored_growth_failure["actions"], [])
 
 
 func _execute(fixture: Dictionary) -> Dictionary:

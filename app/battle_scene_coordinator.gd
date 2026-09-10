@@ -182,6 +182,12 @@ func submit_end_turn() -> Variant:
 	_begin_logic_submission()
 	var result: Variant = controller.end_player_turn()
 	_end_logic_submission()
+	if result.ok:
+		# The card session has already committed every remaining hand card to its
+		# end-of-turn pile. Keep that boundary visible while the round's combat
+		# presentation is playing; the authoritative next-turn hand is bound when
+		# the presentation batch finishes.
+		battle_screen.clear_hand_for_turn_settlement()
 	_complete_logic_command(result)
 	return result
 
@@ -476,7 +482,7 @@ func _drive_auto_once() -> bool:
 		if not bool(card.get("playable", false)) or _auto_attempted_instances.has(instance_id):
 			continue
 		_auto_attempted_instances[instance_id] = true
-		return submit_play_card(_guard_for(card)) != null
+		return submit_play_card(_automatic_guard_for(card, vm)) != null
 	var end_result: Variant = submit_end_turn()
 	if end_result != null and not end_result.ok:
 		# A rejected card advances to the next authoritative card. A rejected
@@ -544,3 +550,30 @@ static func _guard_for(card: Dictionary) -> Dictionary:
 		"expected_source_skill_id": str(card.get("source_skill_id", "")),
 		"owner_hero_id": card.get("owner_hero_id"),
 	}
+
+
+static func _automatic_guard_for(card: Dictionary, vm: Dictionary) -> Dictionary:
+	var guard := _guard_for(card)
+	var targeting: Dictionary = card.get("targeting", {})
+	var mode := str(targeting.get("mode", "automatic"))
+	if mode == "automatic":
+		return guard
+	var side := str(targeting.get("side", ""))
+	var filter_id := str(targeting.get("filter", ""))
+	for unit: Dictionary in vm.get("teams", {}).get(side, {}).get("slots", []):
+		if not bool(unit.get("occupied", true)) or not bool(unit.get("alive", false)):
+			continue
+		if filter_id == "living_non_puppet" and bool(unit.get("is_puppet", false)):
+			continue
+		if filter_id == "living_puppet_without_enchant_slot" and (
+			not bool(unit.get("is_puppet", false))
+			or int(unit.get("enchantment_capacity", 0)) > 0
+		):
+			continue
+		if filter_id == "lockable" and unit.get("buffs", []).any(
+			func(buff: Dictionary) -> bool: return str(buff.get("id", "")) == "stealth"
+		):
+			continue
+		guard["target"] = {"side": side, "unit_id": unit["id"], "slot": int(unit["slot"])}
+		return guard
+	return guard

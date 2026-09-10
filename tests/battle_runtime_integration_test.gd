@@ -19,7 +19,7 @@ func run(harness: TestHarness) -> void:
 	var tests_before := harness.tests
 	var assertions_before := harness.assertions
 	var failures_before := harness.failures
-	harness.run_test("catalogs and hero extensions compose one exact 30-handler authority graph", func() -> void:
+	harness.run_test("catalogs and hero extensions compose one exact 33-handler authority graph", func() -> void:
 		_test_authority_graph(harness)
 	)
 	harness.run_test("real registry effect and RoundResolver complete one deterministic round", func() -> void:
@@ -42,10 +42,10 @@ func _test_authority_graph(harness: TestHarness) -> void:
 	var fixture := _fixture()
 	var runtime: Variant = fixture["runtime"]
 	harness.assert_true(runtime.is_valid(), str(fixture["errors"]))
-	harness.assert_equal(runtime.handler_ids().size(), 30)
+	harness.assert_equal(runtime.handler_ids().size(), 33)
 	var expected_ids := _catalog_handler_ids(fixture["catalogs"])
 	harness.assert_equal(runtime.handler_ids(), expected_ids)
-	harness.assert_equal(expected_ids.size(), 30)
+	harness.assert_equal(expected_ids.size(), 33)
 
 	var ports: Variant = runtime.component("ports")
 	harness.assert_true(ports.get_script() == CombatPortsScript)
@@ -318,7 +318,10 @@ func _enemy_hero(id: int) -> Dictionary:
 
 
 func _catalog_handler_ids(catalogs: Dictionary) -> Array[String]:
-	var ids: Array[String] = ["battle.castExclusiveSkill.pressOpening"]
+	var ids: Array[String] = [
+		"battle.castExclusiveSkill.pressOpening",
+		"battle.castExclusiveSkill.puppetAttunement",
+	]
 	for definition: Variant in catalogs["skills"].values():
 		ids.append(definition.effect_id)
 	for group: String in ["exclusive", "ultimate"]:

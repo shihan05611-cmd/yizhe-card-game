@@ -8,7 +8,8 @@ const BattleRuntimeScript = preload("res://systems/combat/battle_runtime.gd")
 const CombatPortsScript = preload("res://systems/combat/combat_ports.gd")
 const RoguelikeRelicActionAdapterScript = preload("res://app/roguelike_relic_action_adapter.gd")
 const RunBattleProgressScript = preload("res://systems/roguelike/run_battle_progress.gd")
-const MarshalGrowthScript = preload("res://systems/growth/marshal_growth.gd")
+const EnemySpecialSystemScript = preload("res://systems/enemy_specials/enemy_special_system.gd")
+const BuffEffectsScript = preload("res://systems/buffs/buff_effects.gd")
 
 const DIRECT_CONFIG_KEYS := ["battle_seed", "deployed_hero_ids", "free_skill_ids", "stage_id"]
 const RUN_CONFIG_KEYS := DIRECT_CONFIG_KEYS + ["relic_ids", "encounter", "run_progress"]
@@ -50,6 +51,8 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		battle_draft = config["run_progress"].runtime_draft_authority(errors)
 		if not errors.is_empty():
 			return {}
+		# Legacy checkpoints retain the field for compatibility, never its bonuses.
+		battle_draft["permanent_buffs"] = []
 	var state := _build_state(config, catalogs, errors)
 	if not errors.is_empty():
 		return {}
@@ -61,6 +64,9 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		errors.append("battle RNG streams failed to initialize")
 		return {}
 	var runtime_errors: Array[String] = []
+	# Damage callbacks execute after construction; bind the one authoritative
+	# BuffSystem once the runtime has finished composing its components.
+	var buff_holder := {}
 	var runtime := BattleRuntimeScript.new({
 		"state": state,
 		"run_state": battle_draft,
@@ -84,9 +90,17 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		"format_damage": func(value: float) -> float:
 			return maxf(0.0, roundf(value * 10.0) / 10.0),
 		"get_block_rate": func(unit: Dictionary, _context: Dictionary, _metadata: Dictionary) -> float:
-			return float(unit["base_block_rate"]),
-		"get_damage_multiplier": func(_unit: Dictionary, _context: Dictionary, _metadata: Dictionary) -> float:
-			return 1.0,
+			return BuffEffectsScript.effective_block_rate(unit, buff_holder.get("value"), catalogs["tuning"]),
+		"get_damage_multiplier": func(unit: Dictionary, context: Dictionary, metadata: Dictionary) -> float:
+			var resolved := metadata.duplicate(true)
+			if context.get("dealer_type") == "piece":
+				var attacker_id: Variant = context.get("attacker_unit_id")
+				var side: String = str(context.get("effect", {}).get("source_side", ""))
+				for candidate: Dictionary in state["allies"] + state["enemies"]:
+					if candidate["id"] == attacker_id and candidate["side"] == side:
+						resolved["attacker_unit"] = candidate
+						break
+			return BuffEffectsScript.damage_multiplier(unit, context, resolved, buff_holder.get("value"), catalogs["tuning"]),
 		"on_damage_event": Callable(stream, "capture_damage"),
 		"on_death": func(_unit: Dictionary, _context: Dictionary, _payload: Dictionary) -> void: pass,
 		"on_buff_event": Callable(stream, "capture_buff"),
@@ -100,7 +114,10 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 			% (runtime_errors[0] if not runtime_errors.is_empty() else "invalid runtime")
 		)
 		return {}
+	buff_holder["value"] = runtime.component("buffs", errors)
 	if not relic_action_adapter.bind_runtime(runtime, errors):
+		return {}
+	if not _install_enemy_specials(runtime, state, catalogs, streams["combat"], stream, errors):
 		return {}
 	if run_mode and not _apply_run_projection(
 		state, runtime, config["run_progress"], battle_draft, catalogs, errors,
@@ -118,6 +135,46 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		"relic_ids": relic_ids.duplicate(),
 		"relic_action_adapter": relic_action_adapter,
 	}
+
+
+static func _install_enemy_specials(
+	runtime: Variant, state: Dictionary, catalogs: Dictionary,
+	rng: Variant, stream: Variant, errors: Array[String],
+) -> bool:
+	var has_special := false
+	for enemy: Dictionary in state["enemies"]:
+		if enemy.get("special_id") != null and bool(enemy["alive"]):
+			has_special = true
+	if not has_special:
+		return true
+	var specials := EnemySpecialSystemScript.new({
+		"catalog": catalogs["enemy_specials"],
+		"dispatcher": runtime.component("hook_dispatcher", errors),
+		"get_enemies": func() -> Array: return state["enemies"],
+		"get_active_heroes": func() -> Array:
+			return state["player_heroes"].filter(func(hero: Dictionary) -> bool: return hero["deployed"]),
+		"get_skill_points": func() -> float: return float(state["sp"]),
+		"set_skill_points": func(value: float) -> Dictionary:
+			state["sp"] = maxf(0.0, value)
+			return CombatPortsScript.ok(true),
+		"gain_hero_energy": func(hero: Dictionary, amount: float) -> Dictionary:
+			# This port is the special monster's drain, not a player energy grant.
+			hero["energy"] = clampf(float(hero["energy"]) + amount, 0.0, float(hero["max_energy"]))
+			return CombatPortsScript.ok(true),
+		"log": func(message: String, tone: String) -> void:
+			stream.capture_log({"message": message, "tone": tone}),
+		"on_triggered": func(payload: Dictionary) -> void:
+			var event := payload.duplicate(true)
+			event["event_id"] = "enemySpecialTriggered"
+			stream.capture_combat(event),
+		"rng": rng,
+	}, errors)
+	if not errors.is_empty() or not specials.is_valid():
+		return false
+	# Godot method Callables are weak: the composition owner must retain the
+	# special system, which itself deliberately does not retain the dispatcher.
+	runtime.set_meta("enemy_special_system", specials)
+	return true
 
 
 static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array[String]) -> Dictionary:
@@ -161,9 +218,9 @@ static func _build_state(config: Dictionary, catalogs: Dictionary, errors: Array
 	var source := {
 		"round": 1,
 		"phase": "player_input",
-		"sp": 10.0,
-		"sp_max": 10.0,
-		"base_sp_max": 10.0,
+		"sp": 4.0,
+		"sp_max": 4.0,
+		"base_sp_max": 4.0,
 		"enemy_sp": 6.0,
 		"enemy_sp_max": 6.0,
 		"allies": _run_allies(catalogs, config["run_progress"], errors) if config.has("run_progress") else _team("ally", catalogs),
@@ -241,7 +298,7 @@ static func _team(side: String, catalogs: Dictionary) -> Array[Dictionary]:
 			"atk": attack,
 			"crit_rate": crit,
 			"alive": true,
-			"general": slot == 1,
+			"general": false,
 			"base_block_rate": block,
 			"extra_action_charges": 0,
 			"buffs": [],
@@ -312,8 +369,8 @@ static func _apply_run_projection(
 	state: Dictionary,
 	runtime: Variant,
 	progress: Variant,
-	battle_draft: Dictionary,
-	catalogs: Dictionary,
+	_battle_draft: Dictionary,
+	_catalogs: Dictionary,
 	errors: Array[String],
 ) -> bool:
 	var relic_system: Variant = runtime.component("relic_system", errors)
@@ -322,22 +379,9 @@ static func _apply_run_projection(
 	state["sp_max"] = maxf(0.0, float(state["base_sp_max"]) + relic_system.get_skill_point_max_adjustment())
 	state["sp"] = state["sp_max"]
 	for unit: Dictionary in state["allies"]:
-		var stacks := 0
-		for entry: Dictionary in battle_draft["permanent_buffs"]:
-			if entry["id"] == "marshalPromotion" and entry["target"] == {"type": "pieceSlot", "id": unit["slot"]}:
-				stacks = entry["stacks"]
-		var bonuses := MarshalGrowthScript.promotion_bonuses(
-			stacks, _marshal_tuning(catalogs), errors,
-		)
-		if not errors.is_empty():
-			return false
-		unit["atk"] += bonuses["atk"]
-		unit["max_hp"] += bonuses["max_hp"]
-		unit["base_block_rate"] = minf(0.95, unit["base_block_rate"] + bonuses["block"])
-		unit["crit_rate"] = minf(0.95, unit["crit_rate"] + bonuses["crit"])
 		unit["max_hp"] += relic_system.get_class_max_hp_adjustment(unit["class_id"], "ally")
 		if unit["max_hp"] <= 0.0:
-			errors.append("Run relic and permanent growth projection produced non-positive ally max HP")
+			errors.append("Run relic projection produced non-positive ally max HP")
 			return false
 		unit["hp"] = unit["max_hp"] if unit["alive"] else 0.0
 	var projected: Array = progress.project_allies(state["allies"], errors)

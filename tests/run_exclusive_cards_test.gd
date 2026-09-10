@@ -115,8 +115,9 @@ func _test_public_acquisition_commands(harness: TestHarness) -> void:
 		var shop_lifecycle: Variant = shop_result["lifecycle"]
 		var shop_option: Dictionary = shop_result["option"]
 		var errors: Array[String] = []
+		var shop_copies_before: int = shop_lifecycle._state["exclusive_card_ids"].count(shop_option["payload_id"])
 		harness.assert_true(shop_lifecycle.buy_shop_option(shop_option["id"], errors), "; ".join(errors))
-		harness.assert_equal(shop_lifecycle._state["exclusive_card_ids"], [shop_option["payload_id"]])
+		harness.assert_equal(shop_lifecycle._state["exclusive_card_ids"].count(shop_option["payload_id"]), shop_copies_before + 1)
 		harness.assert_true(shop_lifecycle.complete_current_node(errors), "; ".join(errors))
 		var battle_node: Dictionary = {}
 		# A shop may be followed by another safe node; use public map commands
@@ -144,13 +145,15 @@ func _test_public_acquisition_commands(harness: TestHarness) -> void:
 		if not battle_node.is_empty():
 			harness.assert_true(shop_lifecycle.choose_node(battle_node["id"], errors), "; ".join(errors))
 			var launch: Dictionary = shop_lifecycle.begin_current_battle(errors)
-			harness.assert_equal(launch["exclusive_card_ids"], [shop_option["payload_id"]])
+			harness.assert_equal(launch["exclusive_card_ids"], shop_lifecycle._state["exclusive_card_ids"])
 			var manager := preload("res://autoload/hand_manager.gd").new()
 			var controller := preload("res://app/battle_controller.gd").new(manager)
 			var started: Variant = controller.start(launch)
 			harness.assert_true(started.ok, started.message)
 			if started.ok:
-				var expected_copies := 1 if shop_option["payload_id"] == "exclusive:pressOpening" else 2
+				var expected_copies: int = launch["exclusive_card_ids"].count(shop_option["payload_id"])
+				if shop_option["payload_id"] == "exclusive:siege":
+					expected_copies += 1
 				harness.assert_equal(manager.session_snapshot()["deck_card_ids"].count(shop_option["payload_id"]), expected_copies)
 			manager.free()
 
@@ -160,8 +163,9 @@ func _test_public_acquisition_commands(harness: TestHarness) -> void:
 		var reward_lifecycle: Variant = reward_result["lifecycle"]
 		var reward_option: Dictionary = reward_result["option"]
 		var errors: Array[String] = []
+		var reward_copies_before: int = reward_lifecycle._state["exclusive_card_ids"].count(reward_option["payload_id"])
 		harness.assert_true(reward_lifecycle.select_reward(reward_option["id"], errors), "; ".join(errors))
-		harness.assert_equal(reward_lifecycle._state["exclusive_card_ids"], [reward_option["payload_id"]])
+		harness.assert_equal(reward_lifecycle._state["exclusive_card_ids"].count(reward_option["payload_id"]), reward_copies_before + 1)
 
 
 func _find_public_exclusive(catalogs: Dictionary, target: String, harness: TestHarness) -> Dictionary:

@@ -63,7 +63,7 @@ func _test_elite_and_relic_vm(harness: TestHarness) -> void:
 		return
 	var controller: Variant = launched["controller"]
 	var vm: Dictionary = controller.view_model()
-	harness.assert_equal(_occupied(vm["teams"]["enemy"]["slots"]), [true, true, true, false, false, false])
+	harness.assert_equal(_occupied(vm["teams"]["enemy"]["slots"]), [true, false, true, true, false, true])
 	var relics: Array = vm["relics"]
 	harness.assert_equal(relics.map(func(relic: Dictionary) -> String: return relic["id"]), ["spLimitPlus", "fieldBandage"])
 	for relic: Dictionary in relics:
@@ -76,12 +76,13 @@ func _test_elite_and_relic_vm(harness: TestHarness) -> void:
 	for index in relics.size():
 		var item: Control = row.get_child(index)
 		harness.assert_equal(item.tooltip_text, "%s\n%s" % [relics[index]["name"], relics[index]["description"]])
-	for slot_number in [4, 5, 6]:
-		var empty: Control = screen.enemy_board.slot_for_target({"slot": slot_number})
-		harness.assert_false(empty.chess_art.visible)
-		harness.assert_false(empty.hp_bar.visible)
-		harness.assert_false(empty.death_mark.visible)
-		harness.assert_equal(empty.tooltip_text, "")
+	var devourer: Control = screen.enemy_board.slot_for_target({"slot": 1})
+	harness.assert_true(is_same(screen.enemy_board.slot_for_target({"slot": 2}), devourer))
+	var empty: Control = screen.enemy_board.slot_for_target({"slot": 5})
+	harness.assert_false(empty.chess_art.visible)
+	harness.assert_false(empty.hp_bar.visible)
+	harness.assert_false(empty.death_mark.visible)
+	harness.assert_equal(empty.tooltip_text, "")
 	_release(screen)
 	_cleanup(launched)
 

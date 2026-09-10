@@ -2,6 +2,8 @@ class_name HandView
 extends Control
 
 signal play_card_requested(command: Dictionary)
+signal target_drag_updated(card_vm: Dictionary, origin: Vector2, pointer: Vector2, armed: bool)
+signal target_drag_ended
 
 @export var card_scene: PackedScene = preload("res://scenes/cards/card_view.tscn")
 @export_range(1, 7, 1) var supported_hand_size := 7
@@ -52,6 +54,18 @@ func apply_view_model(view_model: Dictionary) -> void:
 func set_queue_busy(busy: bool) -> void:
 	_queue_busy = busy
 	_refresh_interaction_locks()
+
+
+## Removes all currently displayed cards after their end-of-turn discard has
+## committed. This deliberately does not alter piles or card ordering; the
+## next authoritative ViewModel supplies the next turn's hand after combat
+## presentation completes.
+func clear_for_turn_settlement() -> void:
+	_drag_origins.clear()
+	target_drag_ended.emit()
+	_release_poses.clear()
+	_sync_cards([])
+	layout_cards(animate_layout)
 
 
 func set_queued_instance_ids(instance_ids: Array) -> void:
@@ -258,6 +272,7 @@ func _sync_cards(hand_vm: Array) -> void:
 			card.drag_started.connect(_on_card_drag_started)
 			card.drag_moved.connect(_on_card_drag_moved)
 			card.drag_finished.connect(_on_card_drag_finished)
+			card.drag_cancelled.connect(func() -> void: target_drag_ended.emit())
 			_cards_by_instance[instance_id] = card
 		card.bind_card(desired_lookup[instance_id])
 		_card_container.move_child(card, index)
@@ -293,16 +308,24 @@ func _on_card_drag_started(card: Control, pointer_global: Vector2) -> void:
 		card.cancel_drag(animate_layout)
 		return
 	_drag_origins[card.instance_id()] = pointer_global
+	_on_card_drag_moved(card, pointer_global)
 
 
-func _on_card_drag_moved(_card: Control, _pointer_global: Vector2) -> void:
-	pass
+func _on_card_drag_moved(card: Control, pointer_global: Vector2) -> void:
+	var vm: Dictionary = card.view_model()
+	if str(vm.get("targeting", {}).get("mode", "automatic")) == "automatic":
+		return
+	var origin: Vector2 = _drag_origins.get(card.instance_id(), pointer_global)
+	var armed := origin.y - pointer_global.y >= drag_play_threshold
+	card.modulate.a = 0.12 if armed else 1.0
+	target_drag_updated.emit(vm, origin, pointer_global, armed)
 
 
 func _on_card_drag_finished(card: Control, pointer_global: Vector2) -> void:
 	var instance_id: String = card.instance_id()
 	var origin: Vector2 = _drag_origins.get(instance_id, pointer_global)
 	_drag_origins.erase(instance_id)
+	target_drag_ended.emit()
 	var crossed_threshold := origin.y - pointer_global.y >= drag_play_threshold
 	if crossed_threshold and _can_issue_for(card):
 		_release_poses[instance_id] = {"position": card.global_position, "rotation": card.rotation, "scale": card.scale}
@@ -313,6 +336,7 @@ func _on_card_drag_finished(card: Control, pointer_global: Vector2) -> void:
 			"expected_card_id": str(vm.get("card_id", "")),
 			"expected_source_skill_id": str(vm.get("source_skill_id", "")),
 			"owner_hero_id": vm.get("owner_hero_id"),
+			"release_position": pointer_global,
 		})
 	card.cancel_drag(animate_layout)
 

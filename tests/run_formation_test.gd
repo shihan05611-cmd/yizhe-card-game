@@ -120,35 +120,33 @@ func _test_four_choice_checkpoint_migration(harness: TestHarness) -> void:
 		"the hero chosen from old choice four must remain authoritative",
 	)
 
-	# Late legacy Runs can have recruited more than one former candidate. Three
-	# growth candidates plus a chosen non-growth fourth still reduce to three:
-	# retain the chosen hero and only one growth candidate.
-	var growth_ids: Array = []
-	var chosen_non_growth: Variant = null
+	# Any four valid non-fate candidates can be narrowed. The deployed choice
+	# remains authoritative; no permanent-growth hero is required any more.
+	var valid_ids: Array = []
+	var chosen_hero: Variant = null
 	for hero_id: Variant in session.catalogs["characters"]["players"]:
 		var hero: Variant = session.catalogs["characters"]["players"][hero_id]
 		if hero.exclusive_skill_id == "fate":
 			continue
-		if hero.exclusive_skill_id in ["ascend", "burnEnchant", "fist"]:
-			growth_ids.append(hero_id)
-		elif chosen_non_growth == null:
-			chosen_non_growth = hero_id
-	harness.assert_equal(growth_ids.size(), 3)
-	harness.assert_true(chosen_non_growth != null)
+		valid_ids.append(hero_id)
+		if chosen_hero == null:
+			chosen_hero = hero_id
+	harness.assert_true(valid_ids.size() >= 4)
+	harness.assert_true(chosen_hero != null)
 	var late_legacy: Dictionary = envelope["lifecycle"].duplicate(true)
 	late_legacy["state"]["initial_hero_choice_ids"] = [
-		growth_ids[0], growth_ids[1], growth_ids[2], chosen_non_growth,
+		valid_ids[0], valid_ids[1], valid_ids[2], valid_ids[3],
 	]
-	late_legacy["state"]["hero_deployment_slots"] = {str(chosen_non_growth): 1}
+	late_legacy["state"]["hero_deployment_slots"] = {str(chosen_hero): 1}
 	var migration_errors: Array[String] = []
 	var narrowed: Dictionary = RunLifecycleScript._migrate_four_choice_checkpoint(
 		late_legacy, session.catalogs, migration_errors,
 	)
 	harness.assert_equal(migration_errors, [])
 	harness.assert_equal(narrowed["state"]["initial_hero_choice_ids"].size(), 3)
-	harness.assert_true(chosen_non_growth in narrowed["state"]["initial_hero_choice_ids"])
-	harness.assert_true(narrowed["state"]["initial_hero_choice_ids"].any(func(hero_id: Variant) -> bool:
-		return hero_id in growth_ids
+	harness.assert_true(chosen_hero in narrowed["state"]["initial_hero_choice_ids"])
+	harness.assert_true(narrowed["state"]["initial_hero_choice_ids"].all(func(hero_id: Variant) -> bool:
+		return hero_id in valid_ids
 	))
 
 	# The fourth entry is still validated before migration; it cannot become a
@@ -213,7 +211,7 @@ func _test_four_recruitment_checkpoint_migration(harness: TestHarness) -> void:
 		)
 		harness.assert_true(completed, "; ".join(errors))
 		state = session.lifecycle._state
-		if state["status"] == "reward":
+		while state["status"] == "reward" and not state["reward_options"].is_empty():
 			harness.assert_true(
 				session.lifecycle.select_reward(state["reward_options"][0]["id"], errors),
 				"; ".join(errors),
@@ -232,7 +230,7 @@ func _test_four_recruitment_checkpoint_migration(harness: TestHarness) -> void:
 	harness.assert_true(won, "; ".join(errors))
 	state = session.lifecycle._state
 	harness.assert_equal(state["status"], "reward")
-	if state["reward_options"][0]["type"] != "hero":
+	while state["status"] == "reward" and not state["reward_options"].is_empty() and state["reward_options"][0]["type"] != "hero":
 		harness.assert_true(
 			session.lifecycle.select_reward(state["reward_options"][0]["id"], errors),
 			"; ".join(errors),
