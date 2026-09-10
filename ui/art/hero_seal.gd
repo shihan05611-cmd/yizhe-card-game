@@ -1,4 +1,6 @@
 extends Control
+
+const UI_FONT = preload("res://assets/fonts/yizhe-ui-subset.ttf")
 ## A carved geometric seal for the commanding hero, matching the native pieces.
 ## Portrait identity remains in the VM; this view never changes hero mechanics.
 var hero_id: Variant = 1
@@ -41,7 +43,7 @@ func _draw() -> void:
 	draw_polyline(inset,Color(0.12,0.23,0.19,0.65),1,true)
 	# The inscribed name gives a stable identity even when the compact enemy
 	# panel is too small for a figurative portrait.
-	var font := ThemeDB.fallback_font
+	var font: Font = UI_FONT
 	var font_size := maxi(12,roundi(r*0.52))
 	var glyph := title.substr(0,1)
 	var metrics := font.get_string_size(glyph,HORIZONTAL_ALIGNMENT_LEFT,-1,font_size)

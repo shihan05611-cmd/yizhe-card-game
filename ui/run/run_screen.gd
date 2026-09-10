@@ -8,6 +8,7 @@ const FormationSlotScript = preload("res://ui/run/formation_slot.gd")
 const FormationPieceTokenScript = preload("res://ui/run/formation_piece_token.gd")
 const RelicItemScene: PackedScene = preload("res://scenes/battle/relic_item.tscn")
 const HeroCardCatalogScript = preload("res://data/catalogs/hero_card_catalog.gd")
+const UI_FONT = preload("res://assets/fonts/yizhe-ui-subset.ttf")
 const CREAM := Color("e8e3cd")
 const MUTED := Color("a9b7a0")
 const GOLD := Color("c6ad72")
@@ -52,6 +53,7 @@ func _ready() -> void:
 
 func _theme() -> Theme:
 	var result := Theme.new()
+	result.default_font = UI_FONT
 	result.default_font_size = 16
 	result.set_color("font_color", "Label", CREAM)
 	for state_name in ["normal", "hover", "pressed", "disabled", "focus"]:

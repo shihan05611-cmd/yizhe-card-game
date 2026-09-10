@@ -1,6 +1,8 @@
 extends Control
 ## Presentation only. Shared jade board and the approved ink/paper palette.
 
+const UI_FONT = preload("res://assets/fonts/yizhe-ui-subset.ttf")
+
 var _board_rect := Rect2()
 
 ## Bounds in this Control's local coordinates; layout owns the final placement.
@@ -12,9 +14,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(queue_redraw)
 	var palette := Theme.new()
-	var typeface := SystemFont.new()
-	typeface.font_names = PackedStringArray(["Microsoft YaHei", "Noto Sans CJK SC"])
-	palette.default_font = typeface
+	palette.default_font = UI_FONT
 	palette.default_font_size = 14
 	palette.set_color("font_color", "Label", Color("d7d5bd"))
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:

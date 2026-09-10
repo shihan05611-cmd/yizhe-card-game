@@ -295,7 +295,7 @@ static func _category_mark(category: String) -> String:
 	match category:
 		"free": return "◇ 自由"
 		"exclusive": return "◆ 专属"
-		"ultimate": return "✦ 大招"
+		"ultimate": return "◆ 大招"
 	return "◇ 卡牌"
 
 
