@@ -130,6 +130,7 @@ static func create(config: Variant, stream: Variant, errors: Array[String]) -> D
 		"deployed_hero_ids": config["deployed_hero_ids"].duplicate(),
 		"free_skill_ids": config["free_skill_ids"].duplicate(),
 		"exclusive_card_ids": config.get("exclusive_card_ids", []).duplicate(),
+		"retained_card_keys": config.get("retained_card_keys", []).duplicate(),
 		"battle_seed": config["battle_seed"],
 		"run_progress": config.get("run_progress"),
 		"relic_ids": relic_ids.duplicate(),
@@ -402,6 +403,8 @@ static func _validate_config(config: Variant, errors: Array[String]) -> bool:
 	var expected: Array = (RUN_CONFIG_KEYS if config.has("run_progress") else DIRECT_CONFIG_KEYS).duplicate()
 	if config.has("exclusive_card_ids"):
 		expected.append("exclusive_card_ids")
+	if config.has("retained_card_keys"):
+		expected.append("retained_card_keys")
 	if config.size() != expected.size():
 		errors.append("battle bootstrap config must have a canonical closed shape")
 		return false
@@ -420,6 +423,15 @@ static func _validate_config(config: Variant, errors: Array[String]) -> bool:
 	if typeof(config.get("exclusive_card_ids", [])) != TYPE_ARRAY:
 		errors.append("exclusive_card_ids must be an Array")
 		return false
+	if typeof(config.get("retained_card_keys", [])) != TYPE_ARRAY:
+		errors.append("retained_card_keys must be an Array")
+		return false
+	var retained_seen := {}
+	for key: Variant in config.get("retained_card_keys", []):
+		if typeof(key) != TYPE_STRING or key.is_empty() or key != key.strip_edges() or retained_seen.has(key):
+			errors.append("retained_card_keys must contain unique non-empty trimmed strings")
+			return false
+		retained_seen[key] = true
 	if typeof(config["stage_id"]) != TYPE_STRING or config["stage_id"].strip_edges().is_empty():
 		errors.append("stage_id must be a non-empty string")
 	var seen := {}

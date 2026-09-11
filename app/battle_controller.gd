@@ -48,6 +48,7 @@ func start(config: Variant) -> RefCounted:
 		"deployed_hero_ids": built["deployed_hero_ids"],
 		"free_skill_ids": built["free_skill_ids"],
 		"exclusive_card_ids": built["exclusive_card_ids"],
+		"retained_card_keys": built.get("retained_card_keys", []),
 	}, errors)
 	if not started.ok:
 		return started
@@ -294,6 +295,7 @@ func _card_view(instance_id: String) -> Dictionary:
 		"play_destination": definition.card_play_destination,
 		"end_of_turn_destination": definition.card_end_of_turn_destination,
 		"exhausts_on_success": definition.does_card_exhaust(),
+		"retained": bool(instance.retained),
 		"playable": bool(availability.get("playable", false)),
 		"unavailable_code": str(availability.get("unavailable_code", "")),
 		"unavailable_reason": str(availability.get("reason", "")),

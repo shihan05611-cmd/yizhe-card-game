@@ -56,15 +56,24 @@ func set_queue_busy(busy: bool) -> void:
 	_refresh_interaction_locks()
 
 
-## Removes all currently displayed cards after their end-of-turn discard has
-## committed. This deliberately does not alter piles or card ordering; the
-## next authoritative ViewModel supplies the next turn's hand after combat
-## presentation completes.
-func clear_for_turn_settlement() -> void:
+## Removes cards committed to an end-of-turn pile while keeping retained
+## instances visible. This only updates presentation; the authoritative next
+## turn ViewModel supplies the retained cards plus completed draws.
+func clear_for_turn_settlement(retained_instance_ids: Array = []) -> void:
 	_drag_origins.clear()
 	target_drag_ended.emit()
 	_release_poses.clear()
-	_sync_cards([])
+	var retained_lookup := {}
+	for instance_id: Variant in retained_instance_ids:
+		retained_lookup[str(instance_id)] = true
+	var retained_cards: Array[Dictionary] = []
+	for instance_id: String in _ordered_instance_ids:
+		if not retained_lookup.has(instance_id):
+			continue
+		var card: Variant = _cards_by_instance.get(instance_id)
+		if card != null:
+			retained_cards.append(card.view_model())
+	_sync_cards(retained_cards)
 	layout_cards(animate_layout)
 
 

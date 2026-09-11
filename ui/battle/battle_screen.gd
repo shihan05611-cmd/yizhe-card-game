@@ -201,8 +201,8 @@ func refresh_visible_hand_availability(authoritative_hand: Array) -> void:
 ## discard has committed. The coordinator binds the next-turn ViewModel after
 ## the round presentation batch, which creates the new hand in its canonical
 ## order.
-func clear_hand_for_turn_settlement() -> void:
-	hand_view.clear_for_turn_settlement()
+func clear_hand_for_turn_settlement(retained_instance_ids: Array = []) -> void:
+	hand_view.clear_for_turn_settlement(retained_instance_ids)
 
 
 func take_card_release_pose(instance_id: String) -> Dictionary:

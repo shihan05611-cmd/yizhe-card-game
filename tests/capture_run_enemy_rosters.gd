@@ -147,7 +147,12 @@ func _advance_to_next_chapter(fixture: Dictionary) -> bool:
 				_errors.append("chapter %d route battle failed: %s" % [original_chapter, "; ".join(errors)])
 				return false
 		else:
-			if not lifecycle.complete_current_node(errors):
+			var completed_node: bool = (
+				lifecycle.skip_retained_card_event(errors)
+				if lifecycle._state["status"] == "event" and lifecycle._state["current_event_kind"] == "retain_card"
+				else lifecycle.complete_current_node(errors)
+			)
+			if not completed_node:
 				_errors.append("chapter %d route node completion failed: %s" % [original_chapter, "; ".join(errors)])
 				return false
 		if not _resolve_rewards(lifecycle):

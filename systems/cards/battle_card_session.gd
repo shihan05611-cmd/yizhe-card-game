@@ -19,6 +19,7 @@ var _card_catalog: Dictionary = {}
 var _deployed_hero_ids: Array[int] = []
 var _free_skill_ids: Array[String] = []
 var _deck_card_ids: Array[String] = []
+var _retained_card_keys: Array[String] = []
 var _opening_draw: Dictionary = {}
 var _trace: Array[Dictionary] = []
 var _halted := false
@@ -31,6 +32,8 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 	var expected_keys: Array = CONFIG_KEYS.duplicate()
 	if typeof(config) == TYPE_DICTIONARY and config.has("exclusive_card_ids"):
 		expected_keys.append("exclusive_card_ids")
+	if typeof(config) == TYPE_DICTIONARY and config.has("retained_card_keys"):
+		expected_keys.append("retained_card_keys")
 	if not _exact_keys(config, expected_keys, "battle card session config", errors):
 		return
 	var runtime: Variant = config["battle_runtime"]
@@ -87,13 +90,16 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 		"deployed_hero_ids": config["deployed_hero_ids"],
 		"free_skill_ids": config["free_skill_ids"],
 		"exclusive_card_ids": config.get("exclusive_card_ids", []),
+		"retained_card_keys": config.get("retained_card_keys", []),
 	})
 	if not assembled["ok"]:
 		errors.append(assembled["error"])
 		return
 	var deck: Dictionary = assembled["value"]
 	var hand_runtime := HandRuntimeScript.new(config["battle_seed"])
-	var initialized: Variant = hand_runtime.initialize_deck(deck["definitions"], true)
+	var initialized: Variant = hand_runtime.initialize_deck(
+		deck["definitions"], true, deck["retained_flags"],
+	)
 	if not initialized.ok:
 		errors.append("battle card session deck initialization failed: %s" % initialized.message)
 		return
@@ -120,6 +126,8 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 		_free_skill_ids.append(str(skill_id))
 	for card_id: Variant in deck["card_ids"]:
 		_deck_card_ids.append(str(card_id))
+	for retained_key: Variant in deck["retained_card_keys"]:
+		_retained_card_keys.append(str(retained_key))
 	_opening_draw = opening_draw.to_dict()
 	_trace.append({
 		"event": "battle_card_session_started",
@@ -127,6 +135,7 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 		"deployed_hero_ids": _deployed_hero_ids.duplicate(),
 		"free_skill_ids": _free_skill_ids.duplicate(),
 		"deck_card_ids": _deck_card_ids.duplicate(),
+		"retained_card_keys": _retained_card_keys.duplicate(),
 		"draw": _opening_draw.duplicate(true),
 	})
 	_valid = true
@@ -294,6 +303,7 @@ func snapshot() -> Dictionary:
 		"deployed_hero_ids": _deployed_hero_ids.duplicate(),
 		"free_skill_ids": _free_skill_ids.duplicate(),
 		"deck_card_ids": _deck_card_ids.duplicate(),
+		"retained_card_keys": _retained_card_keys.duplicate(),
 		"opening_draw": _opening_draw.duplicate(true),
 		"hand": _hand_runtime.snapshot(),
 		"trace": _trace.duplicate(true),

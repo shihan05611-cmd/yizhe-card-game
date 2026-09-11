@@ -130,7 +130,11 @@ func view_model(errors: Array[String] = []) -> Dictionary:
 	if not errors.is_empty():
 		return {}
 	var costs := {}
+	var event := {}
 	if lifecycle != null:
+		if str(run.get("status", "")) == "event":
+			var event_errors: Array[String] = []
+			event = lifecycle.get_current_event(event_errors)
 		for raw_option: Variant in run.get("shop_options", []):
 			if typeof(raw_option) != TYPE_DICTIONARY:
 				continue
@@ -151,6 +155,7 @@ func view_model(errors: Array[String] = []) -> Dictionary:
 		"can_continue": save_store != null and save_store.has_method("has_save") and save_store.has_save(),
 		"catalog": catalog_snapshot(),
 		"costs": costs,
+		"event": event,
 		"save_warning": save_warning.duplicate(true),
 	}
 
@@ -264,6 +269,10 @@ func execute(command: Dictionary, errors: Array[String] = []) -> bool:
 			ok = lifecycle.use_forge_heal(errors)
 		"sell_free_skill":
 			ok = lifecycle.sell_free_skill(command.get("skill_id"), errors)
+		"select_retained_card":
+			ok = lifecycle.select_retained_card(command.get("key"), errors)
+		"skip_retained_card_event":
+			ok = lifecycle.skip_retained_card_event(errors)
 		"complete_current_node", "leave_node":
 			ok = lifecycle.complete_current_node(errors)
 		"set_hero_deployment_slot", "deploy":

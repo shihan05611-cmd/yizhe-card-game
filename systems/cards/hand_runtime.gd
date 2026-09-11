@@ -42,16 +42,29 @@ func _init(deck_rng_or_battle_seed: Variant = 0) -> void:
 	_reset_state()
 
 
-func initialize_deck(definitions: Array, shuffle_initial: bool = true) -> RefCounted:
+func initialize_deck(
+	definitions: Array,
+	shuffle_initial: bool = true,
+	retained_flags: Array = [],
+) -> RefCounted:
 	var validation_error := _validate_definitions(definitions)
 	if not validation_error.is_empty():
 		return _failure(Result.INVALID_CARD, validation_error)
+	if not retained_flags.is_empty() and retained_flags.size() != definitions.size():
+		return _failure(Result.INVALID_ARGUMENT, "retained flags must align with deck definitions")
+	for retained: Variant in retained_flags:
+		if typeof(retained) != TYPE_BOOL:
+			return _failure(Result.INVALID_ARGUMENT, "retained flags must contain booleans")
 
 	var staged_instances: Array = []
 	var staged_lookup := {}
 	var sequence := 1
-	for definition in definitions:
-		var instance := CardInstanceScript.new(_format_instance_id(sequence), definition)
+	for index in definitions.size():
+		var definition: Variant = definitions[index]
+		var retained := false if retained_flags.is_empty() else bool(retained_flags[index])
+		var instance := CardInstanceScript.new(
+			_format_instance_id(sequence), definition, {}, retained,
+		)
 		staged_instances.append(instance)
 		staged_lookup[instance.instance_id] = instance
 		sequence += 1
@@ -67,10 +80,12 @@ func initialize_deck(definitions: Array, shuffle_initial: bool = true) -> RefCou
 	_trace.append({
 		"event": "deck_initialized",
 		"instance_ids": _pile_ids(CardDefinitionScript.PILE_DRAW),
+		"retained_instance_ids": _retained_instance_ids(),
 		"shuffled": shuffle_initial,
 	})
 	return _success({
 		"instance_ids": _pile_ids(CardDefinitionScript.PILE_DRAW),
+		"retained_instance_ids": _retained_instance_ids(),
 		"shuffled": shuffle_initial,
 	})
 
@@ -202,8 +217,12 @@ func draw_for_turn(active_hero_count: int) -> RefCounted:
 func end_player_turn() -> RefCounted:
 	var hand_ids := _pile_ids(CardDefinitionScript.PILE_HAND)
 	var moved_ids: Array[String] = []
+	var retained_ids: Array[String] = []
 	for instance_id in hand_ids:
 		var instance: Variant = _instances_by_id[instance_id]
+		if instance.retained:
+			retained_ids.append(instance_id)
+			continue
 		var destination: String = instance.definition.card_end_of_turn_destination
 		var moved := move_card_to_pile(instance_id, destination, CardDefinitionScript.INSERT_TOP)
 		if not moved.ok:
@@ -211,8 +230,15 @@ func end_player_turn() -> RefCounted:
 		moved_ids.append(instance_id)
 	for instance: Variant in _instances_by_id.values():
 		instance.clear_until_turn_cost()
-	_trace.append({"event": "player_turn_ended", "moved_instance_ids": moved_ids})
-	return _success({"moved_instance_ids": moved_ids})
+	_trace.append({
+		"event": "player_turn_ended",
+		"moved_instance_ids": moved_ids,
+		"retained_instance_ids": retained_ids,
+	})
+	return _success({
+		"moved_instance_ids": moved_ids,
+		"retained_instance_ids": retained_ids,
+	})
 
 
 func set_card_cost_modifiers(instance_id: String, modifiers: Variant) -> RefCounted:
@@ -520,6 +546,15 @@ func _pile_ids(pile_name: String) -> Array[String]:
 	var ids: Array[String] = []
 	for instance in _piles[pile_name]:
 		ids.append(instance.instance_id)
+	return ids
+
+
+func _retained_instance_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for instance_id: String in _instances_by_id:
+		if _instances_by_id[instance_id].retained:
+			ids.append(instance_id)
+	ids.sort()
 	return ids
 
 

@@ -85,6 +85,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("controller and card label expose flame schedule while ultimate remains zero cost", func() -> void:
 		_test_controller_flame_cost_display(harness)
 	)
+	harness.run_test("burn01 uses its successful battle cast schedule in controller label and payment", func() -> void:
+		_test_controller_burn01_cost_display(harness)
+	)
 
 
 func _test_tactical_draw(harness: TestHarness) -> void:
@@ -304,6 +307,128 @@ func _test_controller_flame_cost_display(harness: TestHarness) -> void:
 	harness.assert_equal(ultimate_vm.get("effective_cost"), 0)
 	harness.assert_equal(_rendered_cost(ultimate_vm), "0")
 	manager.free()
+
+
+func _test_controller_burn01_cost_display(harness: TestHarness) -> void:
+	var manager := HandManager.new()
+	var controller := Controller.new(manager)
+	var started: Variant = controller.start({
+		"battle_seed": "burn01-cost-display",
+		"deployed_hero_ids": [1],
+		"free_skill_ids": ["smallHeal", "markBurn"],
+		"stage_id": "counter",
+	})
+	harness.assert_true(started.ok, started.message)
+	if not started.ok:
+		manager.free()
+		return
+	var state: Dictionary = controller._runtime.component("state")
+	state["sp"] = 60.0
+	var session: Variant = manager._session
+	var hand: Variant = session.component("hand_runtime")
+	var cards: Dictionary = session.component("card_catalog")
+	var buffs: Variant = controller._runtime.component("buffs")
+	var errors: Array[String] = []
+	harness.assert_true(buffs.apply_unit(state["enemies"][0], "burn", 1, 3, errors), "; ".join(errors))
+	var sp_before := float(state["sp"])
+	for expected_cost: int in [1, 2, 4, 8, 8]:
+		var created: Variant = hand.create_card(
+			cards["exclusive:burn01"], CardDefinitionScript.PILE_HAND,
+		)
+		harness.assert_true(created.ok, created.message)
+		if not created.ok:
+			continue
+		var instance_id := str(created.details["instance_id"])
+		var card_vm := _controller_card_vm(controller, instance_id)
+		harness.assert_equal(card_vm.get("base_cost"), expected_cost)
+		harness.assert_equal(card_vm.get("effective_cost"), expected_cost)
+		harness.assert_equal(card_vm.get("actual_cost"), expected_cost)
+		harness.assert_equal(_rendered_cost(card_vm), str(expected_cost))
+		var count_before := int(state["burn_ex_cast_count"])
+		var played: Variant = controller.play_card(instance_id)
+		harness.assert_true(played.ok, played.message)
+		if played.ok:
+			harness.assert_equal(played.details["base_cost"], expected_cost)
+			harness.assert_equal(played.details["effective_cost"], expected_cost)
+			harness.assert_equal(played.details["actual_cost"], expected_cost)
+			harness.assert_equal(int(state["burn_ex_cast_count"]), count_before + 1)
+			sp_before -= expected_cost
+			harness.assert_equal(float(state["sp"]), sp_before)
+
+	var discounted: Variant = hand.create_card(
+		cards["exclusive:burn01"], CardDefinitionScript.PILE_HAND,
+	)
+	harness.assert_true(discounted.ok, discounted.message)
+	var discounted_id := str(discounted.details["instance_id"])
+	var modified: Variant = hand.set_card_cost_modifiers(discounted_id, {
+		"until_played": -3, "until_turn": 0, "until_combat": 0,
+	})
+	harness.assert_true(modified.ok, modified.message)
+	var discounted_vm := _controller_card_vm(controller, discounted_id)
+	harness.assert_equal(discounted_vm.get("base_cost"), 8)
+	harness.assert_equal(discounted_vm.get("effective_cost"), 5)
+	harness.assert_equal(discounted_vm.get("actual_cost"), 5)
+	harness.assert_equal(_rendered_cost(discounted_vm), "5\n原8")
+	var discounted_play: Variant = controller.play_card(discounted_id)
+	harness.assert_true(discounted_play.ok, discounted_play.message)
+	if discounted_play.ok:
+		harness.assert_equal(discounted_play.details["base_cost"], 8)
+		harness.assert_equal(discounted_play.details["effective_cost"], 5)
+		harness.assert_equal(discounted_play.details["actual_cost"], 5)
+		harness.assert_equal(int(state["burn_ex_cast_count"]), 6)
+
+	errors.clear()
+	harness.assert_true(buffs.clear_unit(state["enemies"][0], "burn", errors), "; ".join(errors))
+	var rejected: Variant = hand.create_card(
+		cards["exclusive:burn01"], CardDefinitionScript.PILE_HAND,
+	)
+	harness.assert_true(rejected.ok, rejected.message)
+	var rejected_id := str(rejected.details["instance_id"])
+	var rejected_vm := _controller_card_vm(controller, rejected_id)
+	harness.assert_false(bool(rejected_vm.get("playable", true)))
+	harness.assert_equal(rejected_vm.get("base_cost"), 8)
+	harness.assert_equal(rejected_vm.get("effective_cost"), 8)
+	harness.assert_equal(_rendered_cost(rejected_vm), "8")
+	var count_before_failure := int(state["burn_ex_cast_count"])
+	var sp_before_failure := float(state["sp"])
+	var failed: Variant = controller.play_card(rejected_id)
+	harness.assert_false(failed.ok)
+	harness.assert_equal(int(state["burn_ex_cast_count"]), count_before_failure)
+	harness.assert_equal(float(state["sp"]), sp_before_failure)
+
+	var ultimate: Variant = hand.create_card(
+		cards["ultimate:burn01"], CardDefinitionScript.PILE_HAND,
+	)
+	harness.assert_true(ultimate.ok, ultimate.message)
+	var ultimate_vm := _controller_card_vm(controller, str(ultimate.details["instance_id"]))
+	harness.assert_equal(ultimate_vm.get("base_cost"), 0)
+	harness.assert_equal(ultimate_vm.get("effective_cost"), 0)
+	harness.assert_equal(_rendered_cost(ultimate_vm), "0")
+	manager.free()
+
+	var next_manager := HandManager.new()
+	var next_controller := Controller.new(next_manager)
+	var next_started: Variant = next_controller.start({
+		"battle_seed": "burn01-cost-reset",
+		"deployed_hero_ids": [1],
+		"free_skill_ids": ["smallHeal", "markBurn"],
+		"stage_id": "counter",
+	})
+	harness.assert_true(next_started.ok, next_started.message)
+	if next_started.ok:
+		var next_session: Variant = next_manager._session
+		var next_hand: Variant = next_session.component("hand_runtime")
+		var next_cards: Dictionary = next_session.component("card_catalog")
+		var next_created: Variant = next_hand.create_card(
+			next_cards["exclusive:burn01"], CardDefinitionScript.PILE_HAND,
+		)
+		harness.assert_true(next_created.ok, next_created.message)
+		if next_created.ok:
+			var next_vm := _controller_card_vm(next_controller, str(next_created.details["instance_id"]))
+			harness.assert_equal(next_vm.get("base_cost"), 1)
+			harness.assert_equal(next_vm.get("effective_cost"), 1)
+			harness.assert_equal(_rendered_cost(next_vm), "1")
+	next_manager.free()
 
 
 static func _controller_card_vm(controller: Variant, instance_id: String) -> Dictionary:

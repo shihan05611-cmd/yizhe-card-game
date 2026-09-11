@@ -26,6 +26,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("test_end_turn_destinations", func() -> void:
 		_test_end_turn_destinations(harness)
 	)
+	harness.run_test("retained copies stay through turn end but use normal play destinations", func() -> void:
+		_test_retained_copy_lifecycle(harness)
+	)
 	harness.run_test("deck RNG is independent from combat and enemyPolicy", func() -> void:
 		_test_deck_rng_independence(harness)
 	)
@@ -141,6 +144,61 @@ func _test_end_turn_destinations(harness: TestHarness) -> void:
 	harness.assert_equal(runtime.pile_instance_ids(Card.PILE_EXHAUST), [exhaust_id])
 	harness.assert_equal(runtime.pile_instance_ids(Card.PILE_DISCARD), [normal_id, returned_id])
 	_assert_conserved(harness, runtime, 3)
+
+
+func _test_retained_copy_lifecycle(harness: TestHarness) -> void:
+	var runtime := HandRuntimeScript.new("retained-copy")
+	var normal := _card("retained-normal")
+	var exhaust := _card("retained-exhaust", Card.PILE_DISCARD, true)
+	var initialized: Variant = runtime.initialize_deck(
+		[normal, normal, exhaust], false, [false, true, true],
+	)
+	harness.assert_true(initialized.ok, initialized.message)
+	harness.assert_equal(initialized.details["retained_instance_ids"], [
+		"card-00000002", "card-00000003",
+	])
+	harness.assert_true(runtime.draw_cards(3).ok)
+	var retained_normal_id := "card-00000002"
+	var retained_exhaust_id := "card-00000003"
+	harness.assert_true(runtime.get_instance_snapshot(retained_normal_id).retained)
+	harness.assert_true(runtime.get_instance_snapshot(retained_exhaust_id).retained)
+	harness.assert_false(runtime.get_instance_snapshot("card-00000001").retained)
+	harness.assert_true(runtime.set_card_cost_modifiers(retained_normal_id, {
+		"until_played": 0, "until_turn": 3, "until_combat": 0,
+	}).ok)
+	var played_exhaust: Variant = runtime.process_play_command(
+		retained_exhaust_id, Callable(), _success(),
+	)
+	harness.assert_true(played_exhaust.ok, played_exhaust.message)
+	harness.assert_equal(played_exhaust.details["destination"], Card.PILE_EXHAUST)
+	var ended: Variant = runtime.end_player_turn()
+	harness.assert_true(ended.ok, ended.message)
+	harness.assert_equal(ended.details["retained_instance_ids"], [retained_normal_id])
+	harness.assert_equal(ended.details["moved_instance_ids"], ["card-00000001"])
+	harness.assert_equal(runtime.pile_instance_ids(Card.PILE_HAND), [retained_normal_id])
+	harness.assert_equal(runtime.pile_instance_ids(Card.PILE_DISCARD), ["card-00000001"])
+	harness.assert_equal(runtime.get_instance_snapshot(retained_normal_id).cost_modifiers()["until_turn"], 0)
+	var played_normal: Variant = runtime.process_play_command(
+		retained_normal_id, Callable(), _success(),
+	)
+	harness.assert_true(played_normal.ok, played_normal.message)
+	harness.assert_equal(played_normal.details["destination"], Card.PILE_DISCARD)
+	harness.assert_equal(runtime.pile_instance_ids(Card.PILE_HAND), [])
+	_assert_conserved(harness, runtime, 3)
+
+	var capped := HandRuntimeScript.new("retained-hand-cap")
+	harness.assert_true(capped.initialize_deck(
+		_copies(normal, 9), false,
+		[false, false, false, false, false, false, false, false, true],
+	).ok)
+	harness.assert_true(capped.draw_cards(7).ok)
+	harness.assert_true(capped.end_player_turn().ok)
+	var draw: Variant = capped.draw_for_turn(6)
+	harness.assert_false(draw.ok)
+	harness.assert_equal(draw.details["requested"], 8)
+	harness.assert_equal(draw.details["attempted"], 8)
+	harness.assert_equal(draw.details["drawn_instance_ids"].size(), 6)
+	harness.assert_equal(capped.pile_instance_ids(Card.PILE_HAND).size(), 7, "retained copy occupies one hand slot")
 
 
 func _test_deck_rng_independence(harness: TestHarness) -> void:

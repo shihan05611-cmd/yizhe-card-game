@@ -44,6 +44,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("round failure after discard halts session without a second resolve", func() -> void:
 		_test_round_failure_stops(harness)
 	)
+	harness.run_test("retained session copy survives discard and reduces next draw capacity", func() -> void:
+		_test_retained_session_turn(harness)
+	)
 	print("M3-3 BATTLE CARD SESSION TESTS: tests=%d assertions=%d failures=%d" % [
 		harness.tests - tests_before,
 		harness.assertions - assertions_before,
@@ -325,17 +328,59 @@ func _test_round_failure_stops(harness: TestHarness) -> void:
 	harness.assert_equal(session.snapshot()["trace"], trace_after_failure)
 
 
+func _test_retained_session_turn(harness: TestHarness) -> void:
+	var created := _session({
+		"deployed_hero_ids": [1], "retained_card_keys": ["free:1"],
+	}, ["pieceBlock", "pieceBlock", "pieceBlock", "pieceBlock"], "retained-session")
+	var session: Variant = created["session"]
+	harness.assert_true(session.is_valid(), str(created["errors"]))
+	if not session.is_valid():
+		return
+	harness.assert_equal(session.snapshot()["retained_card_keys"], ["free:1"])
+	var hand: Variant = session.component("hand_runtime")
+	var retained_id := ""
+	for pile_name: String in ["draw", "hand", "discard", "exhaust"]:
+		for instance_id: String in hand.pile_instance_ids(pile_name):
+			if hand.get_instance_snapshot(instance_id).retained:
+				retained_id = instance_id
+	harness.assert_false(retained_id.is_empty())
+	if retained_id.is_empty():
+		return
+	if retained_id not in hand.pile_instance_ids("hand"):
+		harness.assert_true(hand.move_card_to_pile(retained_id, "hand", "top").ok)
+	var prior_hand: Array[String] = hand.pile_instance_ids("hand")
+	harness.assert_true(hand.set_card_cost_modifiers(retained_id, {
+		"until_played": 0, "until_turn": -1, "until_combat": 0,
+	}).ok)
+	var ended: Variant = session.end_player_turn()
+	harness.assert_true(ended.ok, ended.message)
+	if not ended.ok:
+		return
+	var discard_details: Dictionary = ended.details["discard"]["details"]
+	harness.assert_equal(discard_details["retained_instance_ids"], [retained_id])
+	harness.assert_equal(discard_details["moved_instance_ids"].size(), prior_hand.size() - 1)
+	harness.assert_equal(ended.details["before_next_draw"]["piles"]["hand"], [retained_id])
+	harness.assert_equal(ended.details["next_draw"]["details"]["requested"], 3)
+	harness.assert_equal(ended.details["next_draw"]["details"]["attempted"], 3)
+	harness.assert_true(retained_id in session.snapshot()["hand"]["piles"]["hand"])
+	harness.assert_equal(session.snapshot()["hand"]["piles"]["hand"].size(), 4)
+	harness.assert_equal(hand.get_instance_snapshot(retained_id).cost_modifiers()["until_turn"], 0)
+
+
 func _session(options: Dictionary, free_skill_ids: Array, battle_seed: Variant) -> Dictionary:
 	var fixture_options := options.duplicate(true)
 	fixture_options["install_card_runtime"] = false
 	var fixture: Dictionary = M3Fixture.create(fixture_options)
 	var errors: Array[String] = []
-	var session := SessionScript.new({
+	var config := {
 		"battle_runtime": fixture["runtime"],
 		"battle_seed": battle_seed,
 		"deployed_hero_ids": options.get("deployed_hero_ids", [2, 3, 4, 9]),
 		"free_skill_ids": free_skill_ids,
-	}, errors)
+	}
+	if options.has("retained_card_keys"):
+		config["retained_card_keys"] = options["retained_card_keys"].duplicate()
+	var session := SessionScript.new(config, errors)
 	return {"fixture": fixture, "session": session, "errors": errors}
 
 

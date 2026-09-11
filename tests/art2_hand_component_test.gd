@@ -51,6 +51,20 @@ func _test_card_structure(harness: TestHarness) -> void:
 	harness.assert_true(card.has_node("CardSurface/CostSeal"))
 	harness.assert_true(card.has_node("CardSurface/TagRow/Owner"))
 	harness.assert_true(card.has_node("CardSurface/TagRow/Tags"))
+	var retained_vm := _card_vm(1, "保留牌的原始描述")
+	retained_vm["retained"] = true
+	retained_vm["exhausts_on_success"] = false
+	retained_vm["play_destination"] = "discard"
+	card.bind_card(retained_vm)
+	harness.assert_equal(card.get_node("CardSurface/TagRow/Tags").text, "保留 / 弃牌")
+	harness.assert_contains(card.get_node("InputButton").tooltip_text, "仍占手牌上限")
+	retained_vm["exhausts_on_success"] = true
+	card.bind_card(retained_vm)
+	harness.assert_equal(card.get_node("CardSurface/TagRow/Tags").text, "保留 / 消耗")
+	retained_vm["exhausts_on_success"] = false
+	retained_vm["play_destination"] = "hand"
+	card.bind_card(retained_vm)
+	harness.assert_equal(card.get_node("CardSurface/TagRow/Tags").text, "保留 / 回手")
 	for safe_node_path in ["CardSurface/Category", "CardSurface/Cost", "CardSurface/CardName"]:
 		var safe_node: Control = card.get_node(safe_node_path)
 		harness.assert_true(safe_node.get_rect().end.x <= 140.01, "card primary information overflowed: %s" % safe_node_path)

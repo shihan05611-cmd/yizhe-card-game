@@ -194,6 +194,13 @@ func _legacy_hero_option(catalogs: Dictionary, hero_id: int) -> Dictionary:
 	}
 
 
+func _complete_activity(lifecycle: Variant, state: Dictionary, errors: Array[String]) -> bool:
+	if state["status"] == "fighting":
+		return lifecycle.complete_current_battle(true, errors)
+	if state["status"] == "event" and state["current_event_kind"] == "retain_card":
+		return lifecycle.skip_retained_card_event(errors)
+	return lifecycle.complete_current_node(errors)
+
 func _test_four_recruitment_checkpoint_migration(harness: TestHarness) -> void:
 	var session := _started("res://.godot/test-logs/run-formation-four-recruit.json", harness)
 	var errors: Array[String] = []
@@ -204,11 +211,7 @@ func _test_four_recruitment_checkpoint_migration(harness: TestHarness) -> void:
 		var node := _first_available_node(state)
 		harness.assert_true(session.lifecycle.choose_node(node["id"], errors), "; ".join(errors))
 		state = session.lifecycle._state
-		var completed: bool = (
-			session.lifecycle.complete_current_battle(true, errors)
-			if state["status"] == "fighting"
-			else session.lifecycle.complete_current_node(errors)
-		)
+		var completed: bool = _complete_activity(session.lifecycle, state, errors)
 		harness.assert_true(completed, "; ".join(errors))
 		state = session.lifecycle._state
 		while state["status"] == "reward" and not state["reward_options"].is_empty():
@@ -222,11 +225,7 @@ func _test_four_recruitment_checkpoint_migration(harness: TestHarness) -> void:
 	harness.assert_equal(milestone.get("column"), 2)
 	harness.assert_true(session.lifecycle.choose_node(milestone["id"], errors), "; ".join(errors))
 	state = session.lifecycle._state
-	var won: bool = (
-		session.lifecycle.complete_current_battle(true, errors)
-		if state["status"] == "fighting"
-		else session.lifecycle.complete_current_node(errors)
-	)
+	var won: bool = _complete_activity(session.lifecycle, state, errors)
 	harness.assert_true(won, "; ".join(errors))
 	state = session.lifecycle._state
 	harness.assert_equal(state["status"], "reward")

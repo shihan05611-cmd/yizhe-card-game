@@ -70,6 +70,8 @@ func bind_card(card_vm: Dictionary) -> void:
 	_card_face.bind_card(_card_vm)
 	_illustration.bind_card(_card_vm)
 	var complete_tooltip := str(_card_vm.get("description", ""))
+	if bool(_card_vm.get("retained", false)):
+		complete_tooltip += "\n\n保留：回合结束时留在手牌中，仍占手牌上限；使用后的弃牌、消耗或回手规则不变。"
 	var unavailable_reason := _display_reason(str(_card_vm.get("unavailable_reason", "")))
 	if not unavailable_reason.is_empty():
 		complete_tooltip += "\n\n不可使用：%s" % unavailable_reason
@@ -202,11 +204,13 @@ func _cost_text() -> String:
 
 func _tag_text() -> String:
 	var tags: Array[String] = []
+	if bool(_card_vm.get("retained", false)):
+		tags.append("保留")
 	if bool(_card_vm.get("exhausts_on_success", false)):
 		tags.append("消耗")
 	if str(_card_vm.get("play_destination", "")) == "hand":
 		tags.append("回手")
-	if tags.is_empty():
+	if not bool(_card_vm.get("exhausts_on_success", false)) and str(_card_vm.get("play_destination", "")) != "hand":
 		tags.append("弃牌")
 	return " / ".join(tags)
 
@@ -277,7 +281,7 @@ func _card_short_description() -> String:
 		"puppetAttunement": "指定傀儡获得 1 个附魔槽\n未指定时自动选择",
 		"ascend": "目标位棋子升变为将军\n生命上限 +80，格挡率 +10%",
 		"fate": "激活命运结界（每场一次）\n每回合随机切换命运",
-		"burn01": "已有灼烧层数翻倍\n并使其持续 +2 回合",
+		"burn01": "灼烧翻倍，持续 +2 回合\n费用 1/2/4/8，此后均 8",
 		"burnEnchant": "可附魔弈子获得 1 层炎华\n费用 1/2/2/4，此后均 4",
 	}
 	return str(short_lines.get(str(_card_vm.get("source_skill_id", "")), _card_vm.get("description", "")))

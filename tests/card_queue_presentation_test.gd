@@ -25,6 +25,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("ending a turn immediately clears every displayed card until next-turn bind", func() -> void:
 		_test_end_turn_clears_displayed_hand(harness)
 	)
+	harness.run_test("ending a turn keeps retained card nodes visible through settlement", func() -> void:
+		_test_end_turn_keeps_retained_hand(harness)
+	)
 	harness.run_test("a rejected end turn retains the displayed hand", func() -> void:
 		_test_rejected_end_turn_retains_displayed_hand(harness)
 	)
@@ -156,6 +159,51 @@ func _test_end_turn_clears_displayed_hand(harness: TestHarness) -> void:
 		root.battle_screen.hand_view.card_count(),
 		root.controller.view_model()["hand"].size(),
 		"only the authoritative next-turn hand appears after resolution presentation",
+	)
+	root.free()
+
+
+func _test_end_turn_keeps_retained_hand(harness: TestHarness) -> void:
+	var root: Variant = MainScene.instantiate()
+	root.auto_start = false
+	root.battle_seed = "m4-end-turn-retained-display"
+	root.deployed_hero_ids.assign([1])
+	root.free_skill_ids.assign(["pieceBlock"])
+	root.retained_card_keys.assign(["free:0"])
+	Engine.get_main_loop().root.add_child(root)
+	harness.assert_true(root.start_battle())
+	root.presentation_queue.drain_for_test()
+	var retained_card: Dictionary = {}
+	for card: Dictionary in root.controller.view_model()["hand"]:
+		if bool(card.get("retained", false)):
+			retained_card = card
+			break
+	harness.assert_false(retained_card.is_empty())
+	if retained_card.is_empty():
+		root.free()
+		return
+	var retained_id := str(retained_card["instance_id"])
+	var retained_node: Variant = root.battle_screen.hand_view.card_for_instance(retained_id)
+	harness.assert_not_null(retained_node)
+	var retained_node_id: int = retained_node.get_instance_id()
+	var ended: Variant = root.submit_end_turn()
+	harness.assert_not_null(ended)
+	harness.assert_true(ended.ok, ended.message)
+	harness.assert_true(root.presentation_queue.is_busy())
+	harness.assert_equal(root.battle_screen.hand_view.card_count(), 1)
+	harness.assert_not_null(root.battle_screen.hand_view.card_for_instance(retained_id))
+	harness.assert_equal(
+		root.battle_screen.hand_view.card_for_instance(retained_id).get_instance_id(),
+		retained_node_id,
+		"retained presentation keeps the existing card node",
+	)
+	root.presentation_queue.drain_for_test()
+	harness.assert_true(retained_id in root.controller.view_model()["hand"].map(
+		func(card: Dictionary) -> String: return str(card["instance_id"])
+	))
+	harness.assert_equal(
+		root.battle_screen.hand_view.card_for_instance(retained_id).get_instance_id(),
+		retained_node_id,
 	)
 	root.free()
 

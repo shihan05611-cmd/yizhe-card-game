@@ -20,8 +20,14 @@ static func assemble(config: Variant) -> Dictionary:
 		return CombatPortsScript.fail(error)
 
 	var card_ids: Array[String] = []
+	var retained_flags: Array[bool] = []
+	var retained_key_set := {}
+	var matched_retained_keys := {}
+	for retained_key: String in config.get("retained_card_keys", []):
+		retained_key_set[retained_key] = true
 	var normalized_free_skill_ids: Array[String] = []
-	for raw_skill_id: Variant in config["free_skill_ids"]:
+	for free_index in config["free_skill_ids"].size():
+		var raw_skill_id: Variant = config["free_skill_ids"][free_index]
 		var skill_id: String = raw_skill_id
 		if skill_id in FORBIDDEN_FREE_SKILL_IDS:
 			return CombatPortsScript.fail(
@@ -37,6 +43,11 @@ static func assemble(config: Variant) -> Dictionary:
 		):
 			return CombatPortsScript.fail("battle deck free card authority mismatch: %s" % skill_id)
 		card_ids.append(card_id)
+		var retain_key := "free:%d" % free_index
+		var retained := retained_key_set.has(retain_key)
+		retained_flags.append(retained)
+		if retained:
+			matched_retained_keys[retain_key] = true
 		normalized_free_skill_ids.append(skill_id)
 
 	var normalized_roster: Array[int] = []
@@ -64,9 +75,16 @@ static func assemble(config: Variant) -> Dictionary:
 				"battle deck has no authoritative exclusive card for hero: %d" % hero_id
 			)
 		card_ids.append(exclusive_card_id)
+		var retain_key := "hero:%d" % hero_id
+		var retained := retained_key_set.has(retain_key)
+		retained_flags.append(retained)
+		if retained:
+			matched_retained_keys[retain_key] = true
 
 	# Rewards add independent copies; initial owner cards above remain one each.
-	for card_id: String in config.get("exclusive_card_ids", []):
+	var extra_card_ids: Array = config.get("exclusive_card_ids", [])
+	for exclusive_index in extra_card_ids.size():
+		var card_id: String = extra_card_ids[exclusive_index]
 		var extra: Variant = config["card_catalog"].get(card_id)
 		if (
 			not _exact_card(extra)
@@ -75,6 +93,17 @@ static func assemble(config: Variant) -> Dictionary:
 		):
 			return CombatPortsScript.fail("battle deck exclusive card requires its deployed owner: %s" % card_id)
 		card_ids.append(card_id)
+		var retain_key := "exclusive:%d" % exclusive_index
+		var retained := retained_key_set.has(retain_key)
+		retained_flags.append(retained)
+		if retained:
+			matched_retained_keys[retain_key] = true
+
+	for retained_key: String in retained_key_set:
+		if not matched_retained_keys.has(retained_key):
+			return CombatPortsScript.fail(
+				"battle deck retained card key does not match a card copy: %s" % retained_key
+			)
 
 	var build_errors: Array[String] = []
 	var definitions: Array[Resource] = CardCatalogScript.build_deck_from_card_ids(
@@ -85,6 +114,8 @@ static func assemble(config: Variant) -> Dictionary:
 	return CombatPortsScript.ok({
 		"card_ids": card_ids,
 		"definitions": definitions,
+		"retained_flags": retained_flags,
+		"retained_card_keys": config.get("retained_card_keys", []).duplicate(),
 		"deployed_hero_ids": normalized_roster,
 		"free_skill_ids": normalized_free_skill_ids,
 		"exclusive_card_ids": config.get("exclusive_card_ids", []).duplicate(),
@@ -99,7 +130,10 @@ static func _validate_config(config: Variant) -> String:
 		if not config.has(key):
 			return "battle deck config.%s is required" % key
 	for key: Variant in config:
-		if typeof(key) != TYPE_STRING or (key not in CONFIG_KEYS and key != "exclusive_card_ids"):
+		if (
+			typeof(key) != TYPE_STRING
+			or (key not in CONFIG_KEYS and key not in ["exclusive_card_ids", "retained_card_keys"])
+		):
 			return "battle deck config contains an unknown field"
 	if typeof(config["card_catalog"]) != TYPE_DICTIONARY or config["card_catalog"].is_empty():
 		return "battle deck card_catalog must be non-empty"
@@ -113,9 +147,22 @@ static func _validate_config(config: Variant) -> String:
 		return "battle deck free_skill_ids must be an Array"
 	if typeof(config.get("exclusive_card_ids", [])) != TYPE_ARRAY:
 		return "battle deck exclusive_card_ids must be an Array"
+	if typeof(config.get("retained_card_keys", [])) != TYPE_ARRAY:
+		return "battle deck retained_card_keys must be an Array"
 	for card_id: Variant in config.get("exclusive_card_ids", []):
 		if typeof(card_id) != TYPE_STRING or card_id.is_empty() or card_id != card_id.strip_edges():
 			return "battle deck exclusive_card_ids must contain non-empty trimmed strings"
+	var seen_retained_keys := {}
+	for retained_key: Variant in config.get("retained_card_keys", []):
+		if (
+			typeof(retained_key) != TYPE_STRING
+			or retained_key.is_empty()
+			or retained_key != retained_key.strip_edges()
+		):
+			return "battle deck retained_card_keys must contain non-empty trimmed strings"
+		if seen_retained_keys.has(retained_key):
+			return "battle deck retained_card_keys must be unique"
+		seen_retained_keys[retained_key] = true
 	var seen_heroes := {}
 	for hero_id: Variant in config["deployed_hero_ids"]:
 		if typeof(hero_id) != TYPE_INT or hero_id <= 0:

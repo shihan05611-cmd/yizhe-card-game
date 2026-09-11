@@ -106,7 +106,8 @@ func _exercise_nodes() -> void:
 					captured[state.status] = true
 				if state.status == "forge" and screen.session.view_model().costs.has("forge:heal"):
 					_command({"type":"use_forge_heal"})
-				_command({"type":"leave_node"})
+				var command: Dictionary = {"type":"skip_retained_card_event"} if state.status == "event" and screen.session.snapshot().current_event_kind == "retain_card" else {"type":"leave_node"}
+				_command(command)
 			"failed", "cleared": return
 		await _frames(2)
 	root.size = Vector2i(1600,900)

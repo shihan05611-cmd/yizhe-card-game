@@ -73,8 +73,15 @@ func _test_three_chapter_clear(harness: TestHarness) -> void:
 			"shop":
 				_use_economy_once(lifecycle, state, trace, harness)
 				harness.assert_true(lifecycle.complete_current_node(errors), "; ".join(errors))
-			"forge", "event":
+			"forge":
 				harness.assert_true(lifecycle.complete_current_node(errors), "; ".join(errors))
+			"event":
+				var completed_event: bool = (
+					lifecycle.skip_retained_card_event(errors)
+					if state["current_event_kind"] == "retain_card"
+					else lifecycle.complete_current_node(errors)
+				)
+				harness.assert_true(completed_event, "; ".join(errors))
 			_:
 				harness.fail("unexpected M5 node status: %s" % state["status"])
 				return

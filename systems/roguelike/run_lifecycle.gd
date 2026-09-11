@@ -8,6 +8,7 @@ extends RefCounted
 const RunContractScript = preload("res://systems/roguelike/run_contract.gd")
 const MapSystemScript = preload("res://systems/roguelike/map_system.gd")
 const RunBattleProgressScript = preload("res://systems/roguelike/run_battle_progress.gd")
+const RunCardIdentityScript = preload("res://systems/cards/run_card_identity.gd")
 const CardCatalogScript = preload("res://data/catalogs/card_catalog.gd")
 const HeroCardCatalogScript = preload("res://data/catalogs/hero_card_catalog.gd")
 
@@ -39,7 +40,7 @@ const REWARD_OPTION_TYPES := ["freeSkill", "exclusiveCard", "relic", "heal", "he
 const SHOP_OPTION_TYPES := ["shopFreeSkill", "shopExclusiveCard", "shopRelic"]
 const FORGE_OPTION_TYPES := ["forgeRelic"]
 const STAGE_ID_BY_CHAPTER := {1: "counter", 2: "burn", 3: "core"}
-const CHECKPOINT_VERSION := 3
+const CHECKPOINT_VERSION := 4
 const LEGACY_RUN_ALLY_CLASS_BY_SLOT := {
 	1: "shield", 2: "shield", 3: "shield", 4: "assassin", 5: "crossbow", 6: "banner",
 }
@@ -174,7 +175,7 @@ static func restore_checkpoint(
 		errors.append("Run lifecycle checkpoint must be a closed Dictionary")
 		return null
 	var version: Variant = _normalized_integer(checkpoint["version"])
-	if version not in [1, 2, CHECKPOINT_VERSION]:
+	if version not in [1, 2, 3, CHECKPOINT_VERSION]:
 		errors.append("unsupported Run lifecycle checkpoint version")
 		return null
 	# Only legacy checkpoints gain newly introduced defaults.  A current-version
@@ -194,6 +195,10 @@ static func restore_checkpoint(
 	if not errors.is_empty():
 		return null
 	normalized = _migrate_piece_action_option_snapshots(normalized)
+	if original_version < CHECKPOINT_VERSION:
+		normalized = _migrate_retained_cards_checkpoint(normalized, errors)
+		if not errors.is_empty():
+			return null
 	if (
 		typeof(normalized["state"]) != TYPE_DICTIONARY
 		or normalized["state"].get("status") not in CHECKPOINT_STATUSES
@@ -384,6 +389,74 @@ func get_shop_options(errors: Array[String] = []) -> Array:
 	return _deep_copy(_state["shop_options"])
 
 
+func get_current_event(errors: Array[String] = []) -> Dictionary:
+	errors.clear()
+	if not _require_valid(errors) or not _validate_state(_state, errors) \
+	or _state["status"] != "event":
+		return {}
+	var kind: String = _state["current_event_kind"]
+	if kind == "currency":
+		return {
+			"kind": kind,
+			"name": "拾金",
+			"description": "获得本章事件金币。",
+			"currency_amount": 10 + int(_state["chapter"]) * 2,
+			"options": [],
+		}
+	var candidates := RunCardIdentityScript.enumerate_candidates(_state, _catalogs, errors)
+	if not errors.is_empty():
+		return {}
+	return {
+		"kind": kind,
+		"name": "留墨",
+		"description": "选择一张牌，使这个具体副本在本次探索中获得保留。",
+		"currency_amount": 0,
+		"options": _deep_copy(candidates),
+	}
+
+
+func select_retained_card(key: Variant, errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != "event"
+			or candidate["current_event_kind"] != "retain_card"
+			or typeof(key) != TYPE_STRING
+			or key in candidate["retained_card_keys"]
+		):
+			return false
+		var options := RunCardIdentityScript.unretained_candidates(
+			candidate, _catalogs, local_errors
+		)
+		if not local_errors.is_empty() or not options.any(func(option: Dictionary) -> bool:
+			return option["key"] == key
+		):
+			return false
+		var node := _current_node(candidate)
+		if node.is_empty() or node["type"] != "event":
+			return false
+		candidate["retained_card_keys"].append(key)
+		return _finish_successful_node(candidate, node, local_errors)
+	, errors)
+
+
+func skip_retained_card_event(errors: Array[String] = []) -> bool:
+	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
+		if (
+			not candidate["active"]
+			or candidate["status"] != "event"
+			or candidate["current_event_kind"] != "retain_card"
+		):
+			return false
+		var node := _current_node(candidate)
+		return (
+			not node.is_empty()
+			and node["type"] == "event"
+			and _finish_successful_node(candidate, node, local_errors)
+		)
+	, errors)
+
+
 func get_option_cost(option_id: Variant, errors: Array[String] = []) -> Variant:
 	errors.clear()
 	if not _require_valid(errors) or not _validate_state(_state, errors):
@@ -425,6 +498,7 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 		if not local_errors.is_empty() or scales.is_empty():
 			return false
 		var prepared_options: Array = []
+		var prepared_event_kind := ""
 		if node["type"] == "shop":
 			prepared_options.append_array(_draw_card_options(
 				candidate, SHOP_SKILL_OPTION_COUNT, "shop", _skill_price(node["chapter"]), true,
@@ -442,10 +516,15 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 			)
 		if not local_errors.is_empty():
 			return false
-		if node["type"] == "event" and not _add_currency(
-			candidate, 10 + node["chapter"] * 2, local_errors,
-		):
-			return false
+		if node["type"] == "event":
+			var event_roll: Variant = _random.next(local_errors)
+			if not local_errors.is_empty() or event_roll == null:
+				return false
+			prepared_event_kind = "retain_card" if float(event_roll) < 0.5 else "currency"
+			if prepared_event_kind == "currency" and not _add_currency(
+				candidate, 10 + node["chapter"] * 2, local_errors,
+			):
+				return false
 		var prepared_authority := _publish_option_authority(prepared_options, local_errors)
 		if not local_errors.is_empty():
 			return false
@@ -456,6 +535,7 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 		candidate["reward_options"] = []
 		candidate["shop_options"] = prepared_options
 		candidate["forge_uses_this_node"] = 0
+		candidate["current_event_kind"] = prepared_event_kind
 		_reward_option_authority.clear()
 		_shop_option_authority = prepared_authority
 		_battle_launch_authority = prepared_launch
@@ -478,6 +558,8 @@ func choose_node(node_id: Variant, errors: Array[String] = []) -> bool:
 func complete_current_node(errors: Array[String] = []) -> bool:
 	return _atomic(func(candidate: Dictionary, local_errors: Array[String]) -> bool:
 		if not candidate["active"] or candidate["status"] not in NON_BATTLE_STATUS_BY_TYPE.values():
+			return false
+		if candidate["status"] == "event" and candidate["current_event_kind"] == "retain_card":
 			return false
 		var node := _current_node(candidate)
 		if node.is_empty() or NON_BATTLE_STATUS_BY_TYPE.get(node["type"]) != candidate["status"]:
@@ -504,6 +586,12 @@ func begin_current_battle(errors: Array[String] = []) -> Dictionary:
 		or _battle_progress_session != null
 	):
 		return {}
+	var deployed_ids: Array[int] = _sorted_deployment_ids(_state["hero_deployment_slots"])
+	var battle_retained_keys := RunCardIdentityScript.retained_keys_for_battle(
+		_state, deployed_ids, _catalogs, errors
+	)
+	if not errors.is_empty():
+		return {}
 	var progress := RunBattleProgressScript.new({
 		"run_state": _state,
 		"buff_catalog": _catalogs["buffs"],
@@ -514,11 +602,12 @@ func begin_current_battle(errors: Array[String] = []) -> Dictionary:
 	_battle_progress_session = progress
 	return {
 		"battle_seed": _battle_launch_authority["battle_seed"],
-		"deployed_hero_ids": _sorted_deployment_ids(_state["hero_deployment_slots"]),
+		"deployed_hero_ids": deployed_ids,
 		"free_skill_ids": _state["free_skill_ids"].duplicate(),
 		# Extra exclusives remain in the Run inventory after an owner is taken out
 		# of formation.  The battle only receives copies whose owner is deployed.
 		"exclusive_card_ids": _deployed_exclusive_card_ids(_state),
+		"retained_card_keys": battle_retained_keys,
 		"stage_id": _battle_launch_authority["stage_id"],
 		"relic_ids": _battle_relic_ids(),
 		"encounter": _deep_copy(_battle_launch_authority["encounter"]),
@@ -738,6 +827,9 @@ func sell_free_skill(skill_id: Variant, errors: Array[String] = []) -> bool:
 		# The Godot Run owns card copies as a multiset. A sale consumes exactly
 		# one copy, even when the same skill id appears several times.
 		candidate["free_skill_ids"].remove_at(index)
+		candidate["retained_card_keys"] = RunCardIdentityScript.after_free_copy_removed(
+			candidate["retained_card_keys"], index
+		)
 		return true
 	, errors)
 
@@ -1190,6 +1282,7 @@ func _clear_node_runtime(candidate: Dictionary) -> void:
 	candidate["reward_options"] = []
 	candidate["shop_options"] = []
 	candidate["forge_uses_this_node"] = 0
+	candidate["current_event_kind"] = ""
 	_reward_option_authority.clear()
 	_shop_option_authority.clear()
 	_battle_launch_authority.clear()
@@ -1322,6 +1415,7 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 			or not state["hero_deployment_slots"].is_empty()
 			or not state["free_skill_ids"].is_empty()
 			or not state["exclusive_card_ids"].is_empty()
+			or not state["retained_card_keys"].is_empty()
 			or not state["map_nodes"].is_empty()
 			or state["current_node_id"] != null
 		):
@@ -1334,6 +1428,18 @@ func _validate_state(state: Dictionary, errors: Array[String]) -> bool:
 	if not _owned_includes_initial_choice(state):
 		errors.append("Run roster must retain the selected initial hero")
 		return false
+	var identity_errors: Array[String] = []
+	RunCardIdentityScript.enumerate_candidates(state, _catalogs, identity_errors)
+	if not identity_errors.is_empty():
+		errors.append(identity_errors[0])
+		return false
+	var owned_keys := {}
+	for candidate: Dictionary in RunCardIdentityScript.enumerate_candidates(state, _catalogs):
+		owned_keys[candidate["key"]] = true
+	for key: String in state["retained_card_keys"]:
+		if not owned_keys.has(key):
+			errors.append("Run retained card key does not identify an owned copy: %s" % key)
+			return false
 	if not _validate_map(state, errors) or not _validate_status(state, errors):
 		return false
 	return true
@@ -2021,6 +2127,24 @@ static func _migrate_piece_action_option_snapshots(checkpoint: Dictionary) -> Di
 		state["shop_options"] = shop["options"]
 		migrated["shop_option_authority"] = shop["authority"]
 	migrated["state"] = state
+	return migrated
+
+
+static func _migrate_retained_cards_checkpoint(
+	checkpoint: Dictionary, errors: Array[String]
+) -> Dictionary:
+	var migrated: Dictionary = checkpoint.duplicate(true)
+	var state: Variant = migrated.get("state")
+	if typeof(state) != TYPE_DICTIONARY:
+		errors.append("Run checkpoint state is invalid")
+		return {}
+	# Legacy event checkpoints already received their currency on node entry.
+	# Marking them as currency events preserves that result without rerolling or
+	# paying the reward a second time after restore.
+	state["retained_card_keys"] = []
+	state["current_event_kind"] = "currency" if state.get("status") == "event" else ""
+	migrated["state"] = state
+	migrated["version"] = CHECKPOINT_VERSION
 	return migrated
 
 

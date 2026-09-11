@@ -259,11 +259,7 @@ func _render_run() -> void:
 		"map": _map_page(body, state)
 		"reward", "recruit": _reward_page(body, state)
 		"shop", "forge": _shop_page(body, state)
-		"event":
-			_label(body, "奇遇 · 路旁拾遗", 28)
-			_label(body, "苔痕间有旧行旅留下的钱囊。\n你收拢散落的铜钱，将它们带上下一段路。", 18, MUTED, true)
-			_label(body, "已获得 %d 铜钱" % (10+int(state.chapter)*2), 22, GOLD)
-			_button(body, "继续前行", func() -> void: command({"type":"leave_node"}), true)
+		"event": _event_page(body, state)
 		"cleared", "failed":
 			_label(body, "三关已过，落子无悔。" if status == "cleared" else "此局止步，棋心未改。", 32)
 			_label(body, "旅途终章" if status == "cleared" else "败于第 %d 章 · %s" % [int(state.chapter), CHAPTERS[int(state.chapter)]], 18, GOLD)
@@ -490,6 +486,43 @@ func _add_relic_info(parent: Node, relic_id: String) -> void:
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_label(text, str(relic.get("name", relic_id)), 17, GOLD)
 	_label(text, str(relic.get("description", "")), 13, MUTED, true)
+
+func _event_page(parent: Node, state: Dictionary) -> void:
+	var event: Dictionary = _vm.get("event", {})
+	if event.get("kind") != "retain_card":
+		_label(parent, "奇遇 · 路旁拾遗", 28)
+		_label(parent, "苔痕间有旧行旅留下的钱囊。\n你收拢散落的铜钱，将它们带上下一段路。", 18, MUTED, true)
+		_label(parent, "已获得 %d 铜钱" % int(event.get("currency_amount", 10 + int(state.chapter) * 2)), 22, GOLD)
+		_button(parent, "继续前行", func() -> void: command({"type": "leave_node"}), true)
+		return
+	_label(parent, "奇遇 · %s" % str(event.get("name", "留墨")), 28)
+	_label(parent, str(event.get("description", "选择一张具体牌副本留墨。")), 15, MUTED, true)
+	_label(parent, "保留：回合结束时不会被丢弃，仍占用手牌上限。", 14, GOLD, true)
+	var options: Array = event.get("options", [])
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	parent.add_child(scroll)
+	var list := _vbox(scroll, 10)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for option: Dictionary in options:
+		var box := _panel(list, true)
+		var heading := _hbox(box)
+		_label(heading, "%s · 第 %d 份" % [str(option.get("name", option.get("card_id", "牌"))), int(option.get("copy_ordinal", 1))], 20)
+		_spacer(heading, false)
+		var retained := bool(option.get("retained", false))
+		if retained:
+			_label(heading, "已留墨", 15, GOLD)
+		else:
+			var option_key: Variant = option.get("key")
+			_button(heading, "留墨保留", func() -> void: command({"type": "select_retained_card", "key": option_key}))
+		var inventory_index: Variant = option.get("inventory_index")
+		var copy_label := "基础专属副本" if inventory_index == null else "副本序号 %d" % (int(inventory_index) + 1)
+		_label(box, "%d SP · %s" % [int(option.get("base_cost", 0)), copy_label], 14, GOLD)
+		_label(box, str(option.get("description", "")), 14, MUTED, true)
+	if options.is_empty():
+		_label(list, "当前牌库没有可留墨的牌。", 16, MUTED)
+	_button(parent, "跳过留墨", func() -> void: command({"type": "skip_retained_card_event"}), true)
 
 func _map_page(parent: Node, state: Dictionary) -> void:
 	_label(parent, "%s · 择路而行" % CHAPTERS[int(state.chapter)], 28)
@@ -731,6 +764,12 @@ func _show_inventory() -> void:
 		_label(body,"%s · %s%s" % [hero.name,hero.get("exclusive_name",""),"（被动，不入牌库）" if hero.get("is_passive",false) else ""],17)
 		_label(body,str(hero.get("exclusive_description","")),14,MUTED,true)
 	_label(body,"自由技 · 同名牌每份独立",22,GOLD)
+	var retained_keys: Array = state.get("retained_card_keys", [])
+	_label(body, "已留墨保留 %d 张（回合末不弃）" % retained_keys.size(), 14, GOLD)
+	if not retained_keys.is_empty():
+		_label(body, "已留墨副本", 17, GOLD)
+		for retained_key: String in retained_keys:
+			_label(body, "已留墨 · %s" % _retained_card_display(state, retained_key), 15, MUTED)
 	var counts := {}
 	for id: String in state.free_skill_ids: counts[id] = int(counts.get(id,0))+1
 	for id: String in counts:
@@ -760,6 +799,29 @@ func _show_inventory() -> void:
 		_add_relic_info(body, id)
 	dialog.popup_centered()
 
+
+func _retained_card_display(state: Dictionary, key: String) -> String:
+	if key.begins_with("free:"):
+		var index := int(key.trim_prefix("free:"))
+		var free_skill_ids: Array = state.get("free_skill_ids", [])
+		if index >= 0 and index < free_skill_ids.size():
+			var skill_id := str(free_skill_ids[index])
+			var ordinal := 0
+			for prior_index in range(index + 1):
+				if free_skill_ids[prior_index] == skill_id:
+					ordinal += 1
+			var skill: Dictionary = _vm.get("catalog", {}).get("skills", {}).get(skill_id, {})
+			return "%s · 第 %d 份" % [str(skill.get("name", skill_id)), ordinal]
+	if key.begins_with("hero:"):
+		var hero := _hero(int(key.trim_prefix("hero:")))
+		return "%s · 基础专属副本" % str(hero.get("exclusive_name", hero.get("name", "专属牌")))
+	if key.begins_with("exclusive:"):
+		var index := int(key.trim_prefix("exclusive:"))
+		var exclusive_ids: Array = state.get("exclusive_card_ids", [])
+		if index >= 0 and index < exclusive_ids.size():
+			var card := _exclusive_card_view(str(exclusive_ids[index]))
+			return "%s · 额外专属副本 %d" % [str(card.get("name", exclusive_ids[index])), index + 1]
+	return key
 
 func _exclusive_card_view(card_id: String) -> Dictionary:
 	var ability_id := card_id.trim_prefix("exclusive:")

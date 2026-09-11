@@ -15,6 +15,7 @@ const RoguelikeBattleAdapterScript = preload("res://app/roguelike_battle_adapter
 @export var free_skill_ids: Array[String] = [
 	"pieceBlock", "pieceDamageUp", "markBurn", "executeStrike",
 ]
+@export var retained_card_keys: Array[String] = []
 @export var stage_id := "counter"
 
 @onready var battle_screen: Node = %BattleScreen
@@ -67,6 +68,7 @@ func start_battle() -> bool:
 		"battle_seed": battle_seed,
 		"deployed_hero_ids": deployed_hero_ids.duplicate(),
 		"free_skill_ids": free_skill_ids.duplicate(),
+		"retained_card_keys": retained_card_keys.duplicate(),
 		"stage_id": stage_id,
 	})
 	if not result.ok:
@@ -183,11 +185,12 @@ func submit_end_turn() -> Variant:
 	var result: Variant = controller.end_player_turn()
 	_end_logic_submission()
 	if result.ok:
-		# The card session has already committed every remaining hand card to its
-		# end-of-turn pile. Keep that boundary visible while the round's combat
-		# presentation is playing; the authoritative next-turn hand is bound when
-		# the presentation batch finishes.
-		battle_screen.clear_hand_for_turn_settlement()
+		# Non-retained cards have committed to their end-of-turn piles. Keep retained
+		# instances visible while combat plays; the final ViewModel adds next-turn draws.
+		var retained_ids: Array = result.details.get("discard", {}).get(
+			"details", {},
+		).get("retained_instance_ids", [])
+		battle_screen.clear_hand_for_turn_settlement(retained_ids)
 	_complete_logic_command(result)
 	return result
 

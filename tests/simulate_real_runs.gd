@@ -320,7 +320,13 @@ func _use_forge(lifecycle: Variant, state: Dictionary, result: Dictionary) -> vo
 
 func _complete_node(lifecycle: Variant, result: Dictionary) -> bool:
 	var errors: Array[String] = []
-	if lifecycle.complete_current_node(errors):
+	var state: Dictionary = lifecycle._state
+	var completed: bool = (
+		lifecycle.skip_retained_card_event(errors)
+		if state["status"] == "event" and state["current_event_kind"] == "retain_card"
+		else lifecycle.complete_current_node(errors)
+	)
+	if completed:
 		return true
 	_note_failure(result, "complete_node", errors)
 	return false

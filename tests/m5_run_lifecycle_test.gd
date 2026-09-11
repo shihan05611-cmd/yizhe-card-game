@@ -297,7 +297,7 @@ func _reach_battle(
 		harness.assert_true(lifecycle.choose_node(chosen["id"], errors), "; ".join(errors))
 		if state["status"] == "fighting":
 			return
-		harness.assert_true(lifecycle.complete_current_node(errors), "; ".join(errors))
+		harness.assert_true(_complete_selected(lifecycle, state, true, errors), "; ".join(errors))
 	harness.fail("chapter path did not expose a battle node")
 
 
@@ -307,11 +307,11 @@ func _complete_selected(
 	won: bool,
 	errors: Array[String],
 ) -> bool:
-	return (
-		lifecycle.complete_current_battle(won, errors)
-		if state["status"] == "fighting"
-		else lifecycle.complete_current_node(errors)
-	)
+	if state["status"] == "fighting":
+		return lifecycle.complete_current_battle(won, errors)
+	if state["status"] == "event" and state["current_event_kind"] == "retain_card":
+		return lifecycle.skip_retained_card_event(errors)
+	return lifecycle.complete_current_node(errors)
 
 
 func _resolve_battle_reward(

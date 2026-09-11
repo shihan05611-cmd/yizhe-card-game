@@ -35,6 +35,8 @@ const STATE_KEYS := [
 	"relic_ids",
 	"free_skill_ids",
 	"exclusive_card_ids",
+	"retained_card_keys",
+	"current_event_kind",
 	"reward_options",
 	"shop_options",
 	"initial_hero_choice_ids",
@@ -66,6 +68,8 @@ static func create() -> Dictionary:
 		# Extra acquired active-exclusive card copies. The base copy for each
 		# deployed hero is assembled separately and is never recorded here.
 		"exclusive_card_ids": [],
+		"retained_card_keys": [],
+		"current_event_kind": "",
 		"reward_options": [],
 		"shop_options": [],
 		"initial_hero_choice_ids": [],
@@ -132,6 +136,15 @@ static func validate(state: Variant, errors: Array[String] = []) -> bool:
 	if not _string_id_array(state["free_skill_ids"], "run state.free_skill_ids", true, errors):
 		return false
 	if not _string_id_array(state["exclusive_card_ids"], "run state.exclusive_card_ids", true, errors):
+		return false
+	if not _retained_card_keys(state["retained_card_keys"], errors):
+		return false
+	if typeof(state["current_event_kind"]) != TYPE_STRING \
+	or state["current_event_kind"] not in ["", "currency", "retain_card"]:
+		errors.append("run state.current_event_kind is invalid")
+		return false
+	if (state["status"] == "event") != (not state["current_event_kind"].is_empty()):
+		errors.append("run state.current_event_kind must exist only during an event")
 		return false
 	for field in ["initial_hero_choice_ids", "front_hero_ids", "back_hero_ids"]:
 		if not _hero_id_array(state[field], "run state.%s" % field, errors):
@@ -249,6 +262,27 @@ static func _hero_id_array(value: Variant, path: String, errors: Array[String]) 
 			errors.append("%s must contain unique ids" % path)
 			return false
 		seen[id] = true
+	return true
+
+
+static func _retained_card_keys(value: Variant, errors: Array[String]) -> bool:
+	if typeof(value) != TYPE_ARRAY:
+		errors.append("run state.retained_card_keys must be an Array")
+		return false
+	var seen := {}
+	for index in value.size():
+		var key: Variant = value[index]
+		if typeof(key) != TYPE_STRING or seen.has(key):
+			errors.append("run state.retained_card_keys must contain unique strings")
+			return false
+		var parts: PackedStringArray = key.split(":")
+		if parts.size() != 2 or parts[0] not in ["free", "hero", "exclusive"] \
+		or not parts[1].is_valid_int() or int(parts[1]) < 0 \
+		or str(int(parts[1])) != parts[1] \
+		or (parts[0] == "hero" and int(parts[1]) <= 0):
+			errors.append("run state retained card key is invalid: %s" % str(key))
+			return false
+		seen[key] = true
 	return true
 
 

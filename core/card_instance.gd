@@ -6,6 +6,7 @@ const CardDefinitionScript = preload("res://data/definitions/card_definition.gd"
 var instance_id := ""
 var source_skill_id := ""
 var definition: Resource
+var retained := false
 var cost_until_played_delta := 0
 var cost_until_turn_delta := 0
 var cost_until_combat_delta := 0
@@ -15,17 +16,19 @@ func _init(
 	runtime_instance_id: String,
 	card_definition: Resource,
 	cost_modifiers: Dictionary = {},
+	instance_retained: bool = false,
 ) -> void:
 	instance_id = runtime_instance_id
 	definition = card_definition.snapshot()
 	source_skill_id = definition.source_skill_id
+	retained = instance_retained
 	cost_until_played_delta = int(cost_modifiers.get("until_played", 0))
 	cost_until_turn_delta = int(cost_modifiers.get("until_turn", 0))
 	cost_until_combat_delta = int(cost_modifiers.get("until_combat", 0))
 
 
 func snapshot() -> RefCounted:
-	return get_script().new(instance_id, definition, cost_modifiers())
+	return get_script().new(instance_id, definition, cost_modifiers(), retained)
 
 
 func effective_sp_cost() -> int:
@@ -67,6 +70,7 @@ func to_dict() -> Dictionary:
 		"card_id": definition.id,
 		"card_category": definition.card_category,
 		"owner_hero_id": definition.owner_hero_id,
+		"retained": retained,
 		"effective_sp_cost": effective_sp_cost(),
 		"cost_modifiers": cost_modifiers(),
 	}

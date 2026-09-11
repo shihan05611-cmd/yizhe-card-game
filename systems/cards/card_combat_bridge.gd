@@ -429,17 +429,25 @@ func _dynamic_effective_cost(definition: Variant, instance: Variant) -> Dictiona
 
 
 func _scheduled_base_cost(definition: Variant) -> Dictionary:
-	if (
-		definition.card_category != CardDefinitionScript.CATEGORY_EXCLUSIVE
-		or definition.source_skill_id != "burnEnchant"
-	):
+	if definition.card_category != CardDefinitionScript.CATEGORY_EXCLUSIVE:
 		return CombatPortsScript.ok(int(definition.base_sp_cost))
-	var errors: Array[String] = []
-	var buffs: Variant = _ports.service("buffs", errors)
-	if not errors.is_empty():
-		return CombatPortsScript.fail("dynamic card cost requires buffs service: %s" % errors[0])
-	var successful_casts: int = int(buffs.get_side_stacks("ally", "flameCastCount"))
-	return CombatPortsScript.ok(1 if successful_casts == 0 else (2 if successful_casts < 3 else 4))
+	match definition.source_skill_id:
+		"burn01":
+			var successful_casts := int(_state["burn_ex_cast_count"])
+			return CombatPortsScript.ok(
+				1 if successful_casts == 0
+				else 2 if successful_casts == 1
+				else 4 if successful_casts == 2
+				else 8
+			)
+		"burnEnchant":
+			var errors: Array[String] = []
+			var buffs: Variant = _ports.service("buffs", errors)
+			if not errors.is_empty():
+				return CombatPortsScript.fail("dynamic card cost requires buffs service: %s" % errors[0])
+			var successful_casts: int = int(buffs.get_side_stacks("ally", "flameCastCount"))
+			return CombatPortsScript.ok(1 if successful_casts == 0 else (2 if successful_casts < 3 else 4))
+	return CombatPortsScript.ok(int(definition.base_sp_cost))
 
 
 func _card_runtime_preflight_error(definition: Variant) -> String:

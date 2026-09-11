@@ -9,6 +9,7 @@ const CONFIG_KEYS := ["run_state", "buff_catalog", "valid_hero_ids"]
 var _run_state: Dictionary
 var _draft := {"permanent_buffs": []}
 var _piece_slots: Array = []
+var _retained_card_keys: Array[String] = []
 var _growth_port: Variant = null
 var _status := "invalid"
 
@@ -33,6 +34,8 @@ func _init(config: Variant = {}, errors: Array[String] = []) -> void:
 		return
 	_run_state = config["run_state"]
 	_piece_slots = _deep_copy(_run_state["piece_slots"])
+	for key: Variant in _run_state["retained_card_keys"]:
+		_retained_card_keys.append(str(key))
 	_draft = {"permanent_buffs": _deep_copy(_run_state["permanent_buffs"])}
 	_growth_port = GrowthPortScript.new({
 		"run_state": _draft,
@@ -78,6 +81,13 @@ func formation_slots(errors: Array[String] = []) -> Array:
 			"hp_ratio": entry["hp_ratio"],
 		})
 	return result
+
+
+func retained_card_keys(errors: Array[String] = []) -> Array[String]:
+	errors.clear()
+	if not _require_open(errors):
+		return []
+	return _retained_card_keys.duplicate()
 
 
 func snapshot(errors: Array[String] = []) -> Dictionary:

@@ -299,11 +299,18 @@ func _test_event_currency(harness: TestHarness) -> void:
 		var errors: Array[String] = []
 		var before: int = state["currency"]
 		_choose_type(lifecycle, state, "event", harness, errors)
-		harness.assert_equal(state["currency"], before + 10 + chapter * 2)
+		var event: Dictionary = lifecycle.get_current_event(errors)
+		harness.assert_true(event["kind"] in ["currency", "retain_card"])
 		harness.assert_equal(state["reward_options"], [])
 		harness.assert_equal(state["shop_options"], [])
-		harness.assert_true(lifecycle.complete_current_node(errors), "; ".join(errors))
-		harness.assert_equal(state["currency"], before + 10 + chapter * 2)
+		if event["kind"] == "currency":
+			harness.assert_equal(state["currency"], before + 10 + chapter * 2)
+			harness.assert_true(lifecycle.complete_current_node(errors), "; ".join(errors))
+			harness.assert_equal(state["currency"], before + 10 + chapter * 2)
+		else:
+			harness.assert_equal(state["currency"], before)
+			harness.assert_true(lifecycle.skip_retained_card_event(errors), "; ".join(errors))
+			harness.assert_equal(state["currency"], before)
 
 
 func _test_option_authority_and_rng(harness: TestHarness) -> void:

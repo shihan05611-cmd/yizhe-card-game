@@ -140,7 +140,7 @@ func _test_public_acquisition_commands(harness: TestHarness) -> void:
 			if not battle_node.is_empty() or available.is_empty():
 				break
 			harness.assert_true(shop_lifecycle.choose_node(available[0]["id"], errors), "; ".join(errors))
-			harness.assert_true(shop_lifecycle.complete_current_node(errors), "; ".join(errors))
+			harness.assert_true(_complete_non_battle(shop_lifecycle, errors), "; ".join(errors))
 		harness.assert_false(battle_node.is_empty(), "post-shop route must eventually offer a real battle")
 		if not battle_node.is_empty():
 			harness.assert_true(shop_lifecycle.choose_node(battle_node["id"], errors), "; ".join(errors))
@@ -214,8 +214,15 @@ func _find_public_exclusive(catalogs: Dictionary, target: String, harness: TestH
 				if state["reward_options"].is_empty() or not lifecycle.select_reward(state["reward_options"][0]["id"], errors):
 					break
 			elif state["status"] in ["shop", "forge", "event"]:
-				if not lifecycle.complete_current_node(errors):
+				if not _complete_non_battle(lifecycle, errors):
 					break
 			else:
 				break
 	return {}
+
+
+func _complete_non_battle(lifecycle: Variant, errors: Array[String]) -> bool:
+	var state: Dictionary = lifecycle._state
+	if state["status"] == "event" and state["current_event_kind"] == "retain_card":
+		return lifecycle.skip_retained_card_event(errors)
+	return lifecycle.complete_current_node(errors)

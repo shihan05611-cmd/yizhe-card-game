@@ -23,6 +23,9 @@ func run(harness: TestHarness) -> void:
 	harness.run_test("earned exclusive copies retain ownership and independent instances", func() -> void:
 		_test_earned_exclusives(harness)
 	)
+	harness.run_test("retained battle keys select exact duplicate card copies", func() -> void:
+		_test_retained_copy_mapping(harness)
+	)
 	print("M3-3 DECK ASSEMBLY TESTS: tests=%d assertions=%d failures=%d" % [
 		harness.tests - tests_before,
 		harness.assertions - assertions_before,
@@ -111,7 +114,37 @@ func _test_earned_exclusives(harness: TestHarness) -> void:
 	for invalid in [["exclusive:shadow"], ["ultimate:shadow"], ["free:smallHeal"], ["exclusive:counterAura"], [12]]:
 		var rejected := _assemble(authority, [4], [], invalid)
 		harness.assert_false(rejected["ok"], "undeployed, passive, ultimate and non-exclusive inputs are rejected")
-	harness.assert_equal(earned, ["exclusive:shadow", "exclusive:shadow"], "assembly does not mutate ownership")
+		harness.assert_equal(earned, ["exclusive:shadow", "exclusive:shadow"], "assembly does not mutate ownership")
+
+
+func _test_retained_copy_mapping(harness: TestHarness) -> void:
+	var authority := _authority()
+	var result := _assemble(
+		authority,
+		[1],
+		["pieceBlock", "pieceBlock"],
+		["exclusive:burn01", "exclusive:burn01"],
+		["free:1", "hero:1", "exclusive:0"],
+	)
+	harness.assert_true(result["ok"], str(result))
+	if not result["ok"]:
+		return
+	harness.assert_equal(result["value"]["card_ids"], [
+		"free:pieceBlock", "free:pieceBlock", "exclusive:burn01",
+		"exclusive:burn01", "exclusive:burn01",
+	])
+	harness.assert_equal(result["value"]["retained_flags"], [false, true, true, true, false])
+	harness.assert_equal(result["value"]["retained_card_keys"], [
+		"free:1", "hero:1", "exclusive:0",
+	])
+	for definition: Resource in result["value"]["definitions"]:
+		harness.assert_equal(definition.card_end_of_turn_destination, "discard", "retain never mutates shared card definitions")
+	for invalid_keys: Array in [["free:2"], ["hero:4"], ["exclusive:2"], ["free:0", "free:0"]]:
+		var rejected := _assemble(
+			authority, [1], ["pieceBlock", "pieceBlock"],
+			["exclusive:burn01", "exclusive:burn01"], invalid_keys,
+		)
+		harness.assert_false(rejected["ok"], "stale, foreign, out-of-range, and duplicate retain keys are rejected")
 
 
 func _authority() -> Dictionary:
@@ -130,6 +163,7 @@ func _assemble(
 	roster: Array,
 	free_skill_ids: Array,
 	exclusive_card_ids: Array = [],
+	retained_card_keys: Array = [],
 ) -> Dictionary:
 	return DeckAssemblerScript.assemble({
 		"card_catalog": authority["cards"],
@@ -138,6 +172,7 @@ func _assemble(
 		"deployed_hero_ids": roster,
 		"free_skill_ids": free_skill_ids,
 		"exclusive_card_ids": exclusive_card_ids,
+		"retained_card_keys": retained_card_keys,
 	})
 
 

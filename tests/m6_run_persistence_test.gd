@@ -359,6 +359,8 @@ func _reach_activity(
 			return
 		if fixture["state"]["status"] == "fighting":
 			harness.assert_true(fixture["lifecycle"].complete_current_battle(true, errors), "; ".join(errors))
+		elif fixture["state"]["status"] == "event" and fixture["state"]["current_event_kind"] == "retain_card":
+			harness.assert_true(fixture["lifecycle"].skip_retained_card_event(errors), "; ".join(errors))
 		else:
 			harness.assert_true(fixture["lifecycle"].complete_current_node(errors), "; ".join(errors))
 		while fixture["state"]["status"] == "reward":

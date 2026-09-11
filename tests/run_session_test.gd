@@ -68,7 +68,8 @@ func _test_fighting_gate(harness: TestHarness) -> void:
 		harness.assert_true(session.execute({"type": "choose_node", "node_id": node["id"]}, errors), "; ".join(errors))
 		run = session.snapshot(errors)
 		if run["status"] != "fighting":
-			harness.assert_true(session.execute({"type": "leave_node"}, errors), "; ".join(errors))
+			var command: Dictionary = {"type": "skip_retained_card_event"} if run["status"] == "event" and run["current_event_kind"] == "retain_card" else {"type": "leave_node"}
+			harness.assert_true(session.execute(command, errors), "; ".join(errors))
 	var fighting: Dictionary = session.snapshot(errors)
 	harness.assert_equal(fighting["status"], "fighting")
 	var before := fighting.duplicate(true)
